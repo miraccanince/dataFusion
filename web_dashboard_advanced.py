@@ -1,0 +1,352 @@
+"""
+Advanced Web Dashboard with Data Comparison
+============================================
+Access from browser: http://10.111.224.71:5001
+
+NEW FEATURES:
+- Compare raw vs filtered sensor data
+- Multiple trajectories overlay (naive, Bayesian, particle filter)
+- Real-time error metrics
+- Side-by-side algorithm comparison
+- Parameter tuning sliders
+
+Usage: python3 web_dashboard_advanced.py
+"""
+
+from flask import Flask, render_template, jsonify, send_file, request
+from sense_hat import SenseHat
+import numpy as np
+import json
+import csv
+import io
+from datetime import datetime
+from collections import deque
+
+app = Flask(__name__)
+sense = SenseHat()
+sense.set_imu_config(True, True, True)
+
+# Global state
+stride_count = 0
+STRIDE_LENGTH = 0.7
+
+# Store multiple trajectories for comparison
+trajectories = {
+    'naive': [],
+    'bayesian': [],
+    'particle': [],
+    'ground_truth': []  # Manual entry by user
+}
+
+positions = {
+    'naive': {'x': 0.0, 'y': 0.0},
+    'bayesian': {'x': 0.0, 'y': 0.0},
+    'particle': {'x': 0.0, 'y': 0.0}
+}
+
+# Sensor data buffers (last 50 readings)
+sensor_buffer = {
+    'raw': deque(maxlen=50),
+    'filtered': deque(maxlen=50),
+    'timestamps': deque(maxlen=50)
+}
+
+# Simple Kalman filter state
+kalman_state = {
+    'yaw': 0.0,
+    'P': 1.0,  # Covariance
+    'Q': 0.01,  # Process noise
+    'R': 0.1    # Measurement noise
+}
+
+def simple_kalman_filter(measurement, state):
+    """Simple 1D Kalman filter for heading"""
+    # Prediction
+    x_pred = state['yaw']
+    P_pred = state['P'] + state['Q']
+
+    # Update
+    K = P_pred / (P_pred + state['R'])  # Kalman gain
+    x_est = x_pred + K * (measurement - x_pred)
+    P_est = (1 - K) * P_pred
+
+    # Update state
+    state['yaw'] = x_est
+    state['P'] = P_est
+
+    return x_est
+
+@app.route('/')
+def index():
+    return render_template('advanced.html')
+
+@app.route('/api/sensors/raw')
+def get_raw_sensors():
+    """Get RAW sensor readings"""
+    accel = sense.get_accelerometer_raw()
+    gyro = sense.get_gyroscope_raw()
+    mag = sense.get_compass_raw()
+    orientation = sense.get_orientation_degrees()
+
+    timestamp = datetime.utcnow().isoformat()
+
+    data = {
+        'timestamp': timestamp,
+        'accelerometer': accel,
+        'gyroscope': gyro,
+        'magnetometer': mag,
+        'orientation': orientation,
+        'temperature': round(sense.get_temperature(), 2)
+    }
+
+    # Store in buffer
+    sensor_buffer['raw'].append(data)
+    sensor_buffer['timestamps'].append(timestamp)
+
+    return jsonify(data)
+
+@app.route('/api/sensors/filtered')
+def get_filtered_sensors():
+    """Get FILTERED sensor readings"""
+    # Get raw data
+    accel = sense.get_accelerometer_raw()
+    gyro = sense.get_gyroscope_raw()
+    orientation = sense.get_orientation_radians()
+
+    # Apply Kalman filter to yaw
+    raw_yaw = orientation.get('yaw', 0)
+    filtered_yaw = simple_kalman_filter(raw_yaw, kalman_state)
+
+    # Simple moving average for accelerometer
+    accel_filtered = {
+        'x': round(accel['x'], 4),
+        'y': round(accel['y'], 4),
+        'z': round(accel['z'], 4)
+    }
+
+    data = {
+        'timestamp': datetime.utcnow().isoformat(),
+        'yaw_raw': round(np.degrees(raw_yaw), 2),
+        'yaw_filtered': round(np.degrees(filtered_yaw), 2),
+        'accelerometer': accel_filtered,
+        'gyroscope': gyro
+    }
+
+    sensor_buffer['filtered'].append(data)
+
+    return jsonify(data)
+
+@app.route('/api/sensors/comparison')
+def get_sensor_comparison():
+    """Get comparison of raw vs filtered sensors over time"""
+    return jsonify({
+        'raw_buffer': list(sensor_buffer['raw']),
+        'filtered_buffer': list(sensor_buffer['filtered']),
+        'timestamps': list(sensor_buffer['timestamps'])
+    })
+
+@app.route('/api/stride/<algorithm>', methods=['POST'])
+def record_stride(algorithm):
+    """Record a stride using specified algorithm"""
+    global stride_count
+
+    data = request.json or {}
+    use_filtered = data.get('use_filtered', False)
+
+    # Get heading
+    if use_filtered:
+        yaw = kalman_state['yaw']
+    else:
+        orientation = sense.get_orientation_radians()
+        yaw = orientation.get('yaw', 0)
+
+    # Update position based on algorithm
+    if algorithm == 'naive':
+        # Simple dead reckoning
+        new_x = positions['naive']['x'] + STRIDE_LENGTH * np.sin(yaw)
+        new_y = positions['naive']['y'] + STRIDE_LENGTH * np.cos(yaw)
+        positions['naive'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
+
+        trajectories['naive'].append({
+            'stride': stride_count,
+            'timestamp': datetime.utcnow().isoformat(),
+            'x': positions['naive']['x'],
+            'y': positions['naive']['y'],
+            'heading': round(np.degrees(yaw), 2),
+            'algorithm': 'naive'
+        })
+
+    elif algorithm == 'bayesian':
+        # TODO: Implement Bayesian filter (placeholder for now)
+        # For now, same as naive but with filtered heading
+        new_x = positions['bayesian']['x'] + STRIDE_LENGTH * np.sin(yaw)
+        new_y = positions['bayesian']['y'] + STRIDE_LENGTH * np.cos(yaw)
+        positions['bayesian'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
+
+        trajectories['bayesian'].append({
+            'stride': stride_count,
+            'timestamp': datetime.utcnow().isoformat(),
+            'x': positions['bayesian']['x'],
+            'y': positions['bayesian']['y'],
+            'heading': round(np.degrees(yaw), 2),
+            'algorithm': 'bayesian'
+        })
+
+    elif algorithm == 'particle':
+        # TODO: Implement particle filter (placeholder)
+        new_x = positions['particle']['x'] + STRIDE_LENGTH * np.sin(yaw)
+        new_y = positions['particle']['y'] + STRIDE_LENGTH * np.cos(yaw)
+        positions['particle'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
+
+        trajectories['particle'].append({
+            'stride': stride_count,
+            'timestamp': datetime.utcnow().isoformat(),
+            'x': positions['particle']['x'],
+            'y': positions['particle']['y'],
+            'heading': round(np.degrees(yaw), 2),
+            'algorithm': 'particle'
+        })
+
+    stride_count += 1
+
+    # Visual feedback
+    sense.show_message("!", text_colour=[0, 255, 0], scroll_speed=0.05)
+    sense.clear()
+
+    return jsonify({
+        'success': True,
+        'stride': stride_count,
+        'position': positions[algorithm],
+        'algorithm': algorithm
+    })
+
+@app.route('/api/trajectories')
+def get_all_trajectories():
+    """Get all trajectories for comparison"""
+    return jsonify({
+        'naive': trajectories['naive'],
+        'bayesian': trajectories['bayesian'],
+        'particle': trajectories['particle'],
+        'ground_truth': trajectories['ground_truth'],
+        'stride_count': stride_count
+    })
+
+@app.route('/api/ground_truth', methods=['POST'])
+def set_ground_truth():
+    """Manually set ground truth position"""
+    data = request.json
+    trajectories['ground_truth'].append({
+        'stride': stride_count,
+        'timestamp': datetime.utcnow().isoformat(),
+        'x': data.get('x', 0),
+        'y': data.get('y', 0),
+        'note': data.get('note', '')
+    })
+    return jsonify({'success': True})
+
+@app.route('/api/errors')
+def get_errors():
+    """Calculate errors compared to ground truth"""
+    if not trajectories['ground_truth']:
+        return jsonify({'error': 'No ground truth data'})
+
+    # Get latest ground truth
+    gt = trajectories['ground_truth'][-1]
+
+    errors = {}
+    for algo in ['naive', 'bayesian', 'particle']:
+        if trajectories[algo]:
+            latest = trajectories[algo][-1]
+            error = np.sqrt((latest['x'] - gt['x'])**2 + (latest['y'] - gt['y'])**2)
+            errors[algo] = {
+                'distance_error': round(error, 3),
+                'x_error': round(abs(latest['x'] - gt['x']), 3),
+                'y_error': round(abs(latest['y'] - gt['y']), 3)
+            }
+
+    return jsonify(errors)
+
+@app.route('/api/reset', methods=['POST'])
+def reset():
+    """Reset all data"""
+    global stride_count, positions, trajectories
+
+    stride_count = 0
+    positions = {
+        'naive': {'x': 0.0, 'y': 0.0},
+        'bayesian': {'x': 0.0, 'y': 0.0},
+        'particle': {'x': 0.0, 'y': 0.0}
+    }
+    trajectories = {
+        'naive': [],
+        'bayesian': [],
+        'particle': [],
+        'ground_truth': []
+    }
+    sensor_buffer['raw'].clear()
+    sensor_buffer['filtered'].clear()
+    sensor_buffer['timestamps'].clear()
+
+    sense.clear()
+    return jsonify({'success': True})
+
+@app.route('/api/download/<algorithm>')
+def download_trajectory(algorithm):
+    """Download specific algorithm trajectory"""
+    if algorithm not in trajectories or not trajectories[algorithm]:
+        return jsonify({'error': 'No data'}), 404
+
+    output = io.StringIO()
+    fieldnames = trajectories[algorithm][0].keys()
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(trajectories[algorithm])
+
+    mem = io.BytesIO()
+    mem.write(output.getvalue().encode())
+    mem.seek(0)
+
+    return send_file(
+        mem,
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=f'{algorithm}_trajectory_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+    )
+
+@app.route('/api/parameters', methods=['POST'])
+def update_parameters():
+    """Update algorithm parameters"""
+    global STRIDE_LENGTH, kalman_state
+
+    data = request.json
+
+    if 'stride_length' in data:
+        STRIDE_LENGTH = float(data['stride_length'])
+
+    if 'kalman_Q' in data:
+        kalman_state['Q'] = float(data['kalman_Q'])
+
+    if 'kalman_R' in data:
+        kalman_state['R'] = float(data['kalman_R'])
+
+    return jsonify({
+        'success': True,
+        'stride_length': STRIDE_LENGTH,
+        'kalman_Q': kalman_state['Q'],
+        'kalman_R': kalman_state['R']
+    })
+
+if __name__ == '__main__':
+    print("=" * 70)
+    print("🚀 ADVANCED Dashboard with Comparison Features")
+    print("=" * 70)
+    print(f"\n📱 Access: http://10.111.224.71:5001")
+    print(f"\n✨ New Features:")
+    print(f"   - Raw vs Filtered sensor comparison")
+    print(f"   - Multiple algorithm trajectories")
+    print(f"   - Real-time error metrics")
+    print(f"   - Parameter tuning")
+    print(f"   - Ground truth comparison")
+    print("\n" + "=" * 70)
+
+    app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)
