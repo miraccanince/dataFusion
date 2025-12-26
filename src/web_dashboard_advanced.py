@@ -21,6 +21,7 @@ import csv
 import io
 from datetime import datetime
 from collections import deque
+from bayesian_filter import BayesianNavigationFilter, FloorPlanPDF
 
 app = Flask(__name__)
 sense = SenseHat()
@@ -40,7 +41,7 @@ trajectories = {
 
 positions = {
     'naive': {'x': 0.0, 'y': 0.0},
-    'bayesian': {'x': 0.0, 'y': 0.0},
+    'bayesian': {'x': 2.0, 'y': 4.0},  # Start at floor plan origin
     'particle': {'x': 0.0, 'y': 0.0}
 }
 
@@ -58,6 +59,12 @@ kalman_state = {
     'Q': 0.01,  # Process noise
     'R': 0.1    # Measurement noise
 }
+
+# Initialize Bayesian filter with floor plan
+print("Initializing Bayesian Navigation Filter...")
+floor_plan = FloorPlanPDF(width_m=20.0, height_m=10.0, resolution=0.1)
+bayesian_filter = BayesianNavigationFilter(floor_plan, stride_length=STRIDE_LENGTH)
+print("✓ Bayesian filter ready!")
 
 def simple_kalman_filter(measurement, state):
     """Simple 1D Kalman filter for heading"""
@@ -177,11 +184,16 @@ def record_stride(algorithm):
         })
 
     elif algorithm == 'bayesian':
-        # TODO: Implement Bayesian filter (placeholder for now)
-        # For now, same as naive but with filtered heading
-        new_x = positions['bayesian']['x'] + STRIDE_LENGTH * np.sin(yaw)
-        new_y = positions['bayesian']['y'] + STRIDE_LENGTH * np.cos(yaw)
-        positions['bayesian'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
+        # BAYESIAN FILTER: Implement non-recursive Bayesian filter (Equation 5)
+        # Uses floor plan constraints to correct heading errors
+
+        # Update Bayesian filter with IMU measurements
+        estimated_pos = bayesian_filter.update(heading=yaw, stride_length=STRIDE_LENGTH)
+
+        positions['bayesian'] = {
+            'x': round(estimated_pos['x'], 3),
+            'y': round(estimated_pos['y'], 3)
+        }
 
         trajectories['bayesian'].append({
             'stride': stride_count,
@@ -269,7 +281,7 @@ def get_errors():
 @app.route('/api/reset', methods=['POST'])
 def reset():
     """Reset all data"""
-    global stride_count, positions, trajectories
+    global stride_count, positions, trajectories, bayesian_filter
 
     stride_count = 0
     positions = {
@@ -286,6 +298,9 @@ def reset():
     sensor_buffer['raw'].clear()
     sensor_buffer['filtered'].clear()
     sensor_buffer['timestamps'].clear()
+
+    # Reset Bayesian filter to start position
+    bayesian_filter.reset(x=2.0, y=4.0)
 
     sense.clear()
     return jsonify({'success': True})
@@ -316,12 +331,14 @@ def download_trajectory(algorithm):
 @app.route('/api/parameters', methods=['POST'])
 def update_parameters():
     """Update algorithm parameters"""
-    global STRIDE_LENGTH, kalman_state
+    global STRIDE_LENGTH, kalman_state, bayesian_filter
 
     data = request.json
 
     if 'stride_length' in data:
         STRIDE_LENGTH = float(data['stride_length'])
+        # Update Bayesian filter stride length
+        bayesian_filter.stride_length = STRIDE_LENGTH
 
     if 'kalman_Q' in data:
         kalman_state['Q'] = float(data['kalman_Q'])
@@ -336,17 +353,31 @@ def update_parameters():
         'kalman_R': kalman_state['R']
     })
 
+@app.route('/api/floor_plan')
+def get_floor_plan():
+    """Get floor plan data for visualization"""
+    return jsonify({
+        'width_m': floor_plan.width_m,
+        'height_m': floor_plan.height_m,
+        'resolution': floor_plan.resolution,
+        'grid': floor_plan.grid.tolist()  # Convert numpy array to list for JSON
+    })
+
 if __name__ == '__main__':
     print("=" * 70)
-    print("🚀 ADVANCED Dashboard with Comparison Features")
+    print("🚀 ADVANCED Dashboard with Bayesian Filter")
     print("=" * 70)
     print(f"\n📱 Access: http://10.111.224.71:5001")
-    print(f"\n✨ New Features:")
+    print(f"\n✨ Features:")
     print(f"   - Raw vs Filtered sensor comparison")
-    print(f"   - Multiple algorithm trajectories")
+    print(f"   - Multiple algorithm trajectories:")
+    print(f"     • Naive Dead Reckoning")
+    print(f"     • ✓ Bayesian Filter (Equation 5 - Koroglu & Yilmaz 2017)")
+    print(f"     • Particle Filter (TODO)")
     print(f"   - Real-time error metrics")
     print(f"   - Parameter tuning")
     print(f"   - Ground truth comparison")
+    print(f"   - Floor plan constraints (20m × 10m L-shaped hallway)")
     print("\n" + "=" * 70)
 
     app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)

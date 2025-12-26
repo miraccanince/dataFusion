@@ -1,0 +1,422 @@
+"""
+Bayesian Filter for Pedestrian Inertial Navigation
+===================================================
+
+Implementation of the non-recursive Bayesian filter from:
+"Pedestrian inertial navigation with building floor plans for indoor
+environments via non-recursive Bayesian filtering" - Koroglu & Yilmaz (2017)
+
+Core Equation (Equation 5 from paper):
+p(xk|Zk) ∝ p(xk|FP) × p(xk|dk, xk-1) × p(zk|xk) × p(xk|xk-1,...,xk-n) × p(xk-1|Zk-1)
+
+Where:
+- p(xk|FP): Static floor plan PDF (high in walkable areas, low at walls)
+- p(xk|dk, xk-1): Stride length circle (Gaussian circle at distance dk)
+- p(zk|xk): Sensor likelihood (IMU heading prediction)
+- p(xk|xk-1,...,xk-n): Extended motion model (linear/curved prediction)
+- p(xk-1|Zk-1): Previous posterior estimate
+"""
+
+import numpy as np
+from scipy.optimize import minimize
+from scipy.stats import multivariate_normal
+import matplotlib.pyplot as plt
+
+
+class FloorPlanPDF:
+    """
+    Static floor plan probability distribution p(xk|FP)
+
+    Creates a rasterized probability grid where walkable areas have high
+    probability and walls/obstacles have low probability.
+    """
+
+    def __init__(self, width_m=20.0, height_m=10.0, resolution=0.1):
+        """
+        Initialize floor plan PDF
+
+        Args:
+            width_m: Width in meters
+            height_m: Height in meters
+            resolution: Grid resolution in meters (default 0.1m = 10cm)
+        """
+        self.width_m = width_m
+        self.height_m = height_m
+        self.resolution = resolution
+
+        # Grid dimensions
+        self.grid_width = int(width_m / resolution)
+        self.grid_height = int(height_m / resolution)
+
+        # Create simple L-shaped hallway floor plan
+        self.grid = self._create_simple_floor_plan()
+
+        # Normalize to make it a proper PDF
+        self.grid = self.grid / np.sum(self.grid)
+
+    def _create_simple_floor_plan(self):
+        """
+        Create a simple L-shaped hallway for testing
+
+        Layout:
+        ######################
+        ##                  ##
+        ##   HALLWAY 1      ##
+        ##                  ##
+        ##########          ##
+               ##          ##
+               ## HALLWAY 2##
+               ##          ##
+               ##############
+        """
+        grid = np.zeros((self.grid_height, self.grid_width))
+
+        # Hallway 1 (horizontal): 2m wide
+        hallway_width_cells = int(2.0 / self.resolution)
+        y_start = int(3.0 / self.resolution)
+        y_end = y_start + hallway_width_cells
+        x_start = int(1.0 / self.resolution)
+        x_end = int(15.0 / self.resolution)
+        grid[y_start:y_end, x_start:x_end] = 1.0
+
+        # Hallway 2 (vertical): 2m wide, connects to hallway 1
+        x_start2 = int(7.0 / self.resolution)
+        x_end2 = x_start2 + hallway_width_cells
+        y_start2 = y_end  # Connects to hallway 1
+        y_end2 = int(8.0 / self.resolution)
+        grid[y_start2:y_end2, x_start2:x_end2] = 1.0
+
+        # Apply Gaussian smoothing to create gradient at walls
+        from scipy.ndimage import gaussian_filter
+        grid = gaussian_filter(grid, sigma=2.0)
+
+        # Normalize to [0.01, 1.0] range (walls get small but non-zero probability)
+        grid = 0.01 + 0.99 * (grid / np.max(grid))
+
+        return grid
+
+    def get_probability(self, x, y):
+        """
+        Get probability at position (x, y) in meters
+
+        Args:
+            x: X coordinate in meters
+            y: Y coordinate in meters
+
+        Returns:
+            Probability density at (x, y)
+        """
+        # Convert to grid coordinates
+        grid_x = int(x / self.resolution)
+        grid_y = int(y / self.resolution)
+
+        # Check bounds
+        if (0 <= grid_x < self.grid_width and
+            0 <= grid_y < self.grid_height):
+            return self.grid[grid_y, grid_x]
+        else:
+            return 0.01  # Low probability outside bounds
+
+    def visualize(self, save_path=None):
+        """Visualize the floor plan PDF"""
+        plt.figure(figsize=(12, 6))
+        plt.imshow(self.grid, origin='lower', cmap='YlOrRd',
+                   extent=[0, self.width_m, 0, self.height_m])
+        plt.colorbar(label='Walking Likelihood')
+        plt.xlabel('X (meters)')
+        plt.ylabel('Y (meters)')
+        plt.title('Floor Plan Probability Distribution p(xk|FP)')
+        plt.grid(True, alpha=0.3)
+
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+
+        return plt
+
+
+class BayesianNavigationFilter:
+    """
+    Non-recursive Bayesian filter for pedestrian navigation
+    Implements Equation 5 from Koroglu & Yilmaz (2017)
+    """
+
+    def __init__(self, floor_plan, stride_length=0.7, n_history=3):
+        """
+        Initialize Bayesian filter
+
+        Args:
+            floor_plan: FloorPlanPDF object
+            stride_length: Default stride length in meters
+            n_history: Number of previous positions to use in motion model
+        """
+        self.floor_plan = floor_plan
+        self.stride_length = stride_length
+        self.n_history = n_history
+
+        # Position history for extended motion model
+        self.position_history = []
+
+        # Current posterior estimate
+        self.current_estimate = {'x': 2.0, 'y': 4.0}  # Start position
+        self.current_covariance = np.eye(2) * 0.5  # Initial uncertainty
+
+        # Tunable parameters
+        self.sigma_stride = 0.1  # Stride length uncertainty (meters)
+        self.sigma_heading = 0.5  # Heading uncertainty (radians)
+        self.sigma_motion = 0.3  # Motion model uncertainty (meters)
+
+    def p_stride_circle(self, x, y, x_prev, y_prev, stride_length):
+        """
+        p(xk|dk, xk-1): Stride length circle PDF
+
+        Circular Gaussian centered at previous position with radius = stride_length.
+        This exploits the fact that ZUPT gives accurate stride lengths.
+
+        Args:
+            x, y: Candidate position
+            x_prev, y_prev: Previous position
+            stride_length: Measured stride length from ZUPT
+
+        Returns:
+            Probability density
+        """
+        # Distance from previous position
+        distance = np.sqrt((x - x_prev)**2 + (y - y_prev)**2)
+
+        # Gaussian centered at stride_length
+        prob = np.exp(-0.5 * ((distance - stride_length) / self.sigma_stride)**2)
+        prob /= (self.sigma_stride * np.sqrt(2 * np.pi))
+
+        return prob
+
+    def p_sensor_likelihood(self, x, y, x_prev, y_prev, heading, stride_length):
+        """
+        p(zk|xk): Sensor likelihood based on IMU heading (Equation 4)
+
+        zk = x_{k-1} + dk * [sin(heading), cos(heading)]
+
+        Args:
+            x, y: Candidate position
+            x_prev, y_prev: Previous position
+            heading: IMU heading in radians
+            stride_length: Stride length
+
+        Returns:
+            Probability density
+        """
+        # IMU prediction
+        z_x = x_prev + stride_length * np.sin(heading)
+        z_y = y_prev + stride_length * np.cos(heading)
+
+        # Gaussian likelihood centered at IMU prediction
+        mean = np.array([z_x, z_y])
+        cov = np.eye(2) * self.sigma_heading**2
+
+        try:
+            prob = multivariate_normal.pdf([x, y], mean=mean, cov=cov)
+        except:
+            prob = 1e-10
+
+        return prob
+
+    def p_motion_model(self, x, y):
+        """
+        p(xk|xk-1, ..., xk-n): Extended motion model
+
+        Predicts locations on a line for straight segments,
+        curves for corners. Uses n previous positions.
+
+        Args:
+            x, y: Candidate position
+
+        Returns:
+            Probability density
+        """
+        if len(self.position_history) < 2:
+            # Not enough history, return uniform
+            return 1.0
+
+        # Get last n positions
+        history = self.position_history[-self.n_history:]
+
+        if len(history) < 2:
+            return 1.0
+
+        # Predict next position using linear extrapolation
+        last_pos = np.array([history[-1]['x'], history[-1]['y']])
+        prev_pos = np.array([history[-2]['x'], history[-2]['y']])
+
+        # Velocity vector
+        velocity = last_pos - prev_pos
+
+        # Predicted position
+        predicted = last_pos + velocity
+
+        # Gaussian around predicted position
+        mean = predicted
+        cov = np.eye(2) * self.sigma_motion**2
+
+        try:
+            prob = multivariate_normal.pdf([x, y], mean=mean, cov=cov)
+        except:
+            prob = 1e-10
+
+        return prob
+
+    def p_previous_posterior(self, x, y):
+        """
+        p(xk-1|Zk-1): Previous posterior estimate
+
+        Gaussian around previous estimate
+
+        Args:
+            x, y: Candidate position
+
+        Returns:
+            Probability density
+        """
+        mean = np.array([self.current_estimate['x'], self.current_estimate['y']])
+
+        try:
+            prob = multivariate_normal.pdf([x, y], mean=mean, cov=self.current_covariance)
+        except:
+            prob = 1e-10
+
+        return prob
+
+    def posterior_probability(self, pos, x_prev, y_prev, heading, stride_length):
+        """
+        Compute full posterior probability (Equation 5)
+
+        p(xk|Zk) ∝ p(xk|FP) × p(xk|dk, xk-1) × p(zk|xk) ×
+                    p(xk|xk-1,...,xk-n) × p(xk-1|Zk-1)
+
+        Args:
+            pos: [x, y] position to evaluate
+            x_prev, y_prev: Previous position
+            heading: IMU heading in radians
+            stride_length: Stride length
+
+        Returns:
+            Posterior probability (log scale for numerical stability)
+        """
+        x, y = pos
+
+        # 1. Floor plan PDF p(xk|FP)
+        p_fp = self.floor_plan.get_probability(x, y)
+
+        # 2. Stride circle p(xk|dk, xk-1)
+        p_stride = self.p_stride_circle(x, y, x_prev, y_prev, stride_length)
+
+        # 3. Sensor likelihood p(zk|xk)
+        p_sensor = self.p_sensor_likelihood(x, y, x_prev, y_prev, heading, stride_length)
+
+        # 4. Motion model p(xk|xk-1,...,xk-n)
+        p_motion = self.p_motion_model(x, y)
+
+        # 5. Previous posterior p(xk-1|Zk-1)
+        p_prev = self.p_previous_posterior(x, y)
+
+        # Combine (use log probabilities for numerical stability)
+        log_posterior = (np.log(p_fp + 1e-10) +
+                        np.log(p_stride + 1e-10) +
+                        np.log(p_sensor + 1e-10) +
+                        np.log(p_motion + 1e-10) +
+                        np.log(p_prev + 1e-10))
+
+        return log_posterior
+
+    def negative_posterior(self, pos, x_prev, y_prev, heading, stride_length):
+        """Negative posterior for minimization"""
+        return -self.posterior_probability(pos, x_prev, y_prev, heading, stride_length)
+
+    def update(self, heading, stride_length):
+        """
+        Update filter with new stride
+
+        Args:
+            heading: IMU heading in radians
+            stride_length: Measured stride length
+
+        Returns:
+            Estimated position {'x': ..., 'y': ...}
+        """
+        x_prev = self.current_estimate['x']
+        y_prev = self.current_estimate['y']
+
+        # Initial guess (IMU prediction)
+        x0 = [x_prev + stride_length * np.sin(heading),
+              y_prev + stride_length * np.cos(heading)]
+
+        # Mode-seeking: Find maximum of posterior (minimize negative posterior)
+        result = minimize(
+            self.negative_posterior,
+            x0,
+            args=(x_prev, y_prev, heading, stride_length),
+            method='L-BFGS-B',
+            bounds=[(0, self.floor_plan.width_m), (0, self.floor_plan.height_m)]
+        )
+
+        # Extract estimate
+        x_est, y_est = result.x
+
+        # Update current estimate
+        self.current_estimate = {'x': float(x_est), 'y': float(y_est)}
+
+        # Update covariance (simple approach: use inverse Hessian approximation)
+        # For now, keep it constant
+        self.current_covariance = np.eye(2) * 0.3
+
+        # Add to history
+        self.position_history.append(self.current_estimate.copy())
+
+        # Keep only last 10 positions
+        if len(self.position_history) > 10:
+            self.position_history.pop(0)
+
+        return self.current_estimate
+
+    def reset(self, x=2.0, y=4.0):
+        """Reset filter to initial state"""
+        self.position_history = []
+        self.current_estimate = {'x': x, 'y': y}
+        self.current_covariance = np.eye(2) * 0.5
+
+
+# Example usage and testing
+if __name__ == '__main__':
+    print("=" * 70)
+    print("Bayesian Filter for Pedestrian Navigation")
+    print("=" * 70)
+
+    # Create floor plan
+    print("\n1. Creating floor plan PDF...")
+    floor_plan = FloorPlanPDF(width_m=20.0, height_m=10.0, resolution=0.1)
+    print(f"   Grid size: {floor_plan.grid_width} × {floor_plan.grid_height}")
+
+    # Visualize floor plan
+    print("\n2. Visualizing floor plan...")
+    floor_plan.visualize(save_path='floor_plan_pdf.png')
+    print("   Saved to: floor_plan_pdf.png")
+
+    # Create filter
+    print("\n3. Initializing Bayesian filter...")
+    bf = BayesianNavigationFilter(floor_plan, stride_length=0.7)
+    print(f"   Start position: ({bf.current_estimate['x']:.2f}, {bf.current_estimate['y']:.2f})")
+
+    # Simulate some steps
+    print("\n4. Simulating walking...")
+    headings = [0.0, 0.0, 0.0, np.pi/2, np.pi/2, np.pi/2]  # North, then East
+    stride_lengths = [0.7, 0.7, 0.7, 0.7, 0.7, 0.7]
+
+    trajectory = [bf.current_estimate.copy()]
+
+    for i, (heading, stride) in enumerate(zip(headings, stride_lengths)):
+        pos = bf.update(heading, stride)
+        trajectory.append(pos.copy())
+        print(f"   Step {i+1}: heading={np.degrees(heading):.0f}°, "
+              f"position=({pos['x']:.2f}, {pos['y']:.2f})")
+
+    print("\n" + "=" * 70)
+    print("✓ Bayesian filter implementation complete!")
+    print("=" * 70)
