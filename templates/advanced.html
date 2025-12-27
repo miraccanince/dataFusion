@@ -164,9 +164,31 @@
     <div class="container">
         <h1>🔬 Advanced Comparison Dashboard</h1>
 
-        <!-- Algorithm Selection -->
+        <!-- Auto-Walk Control -->
+        <div class="card" id="autoWalkCard" style="border: 3px solid #48bb78;">
+            <h2>🚶 Auto-Walk Mode (Real-Time Detection)</h2>
+            <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 15px;">
+                <button id="startWalkBtn" class="btn-bayesian" onclick="startAutoWalk()" style="flex: 1; font-size: 16px;">
+                    ▶️ Start Walking
+                </button>
+                <button id="stopWalkBtn" class="btn-reset" onclick="stopAutoWalk()" style="flex: 1; font-size: 16px;" disabled>
+                    ⏸️ Stop Walking
+                </button>
+            </div>
+            <div id="walkStatus" style="text-align: center; padding: 15px; background: #f7fafc; border-radius: 8px;">
+                <div style="font-size: 20px; font-weight: bold; color: #718096;">
+                    Status: <span id="walkStatusText">Stopped</span>
+                </div>
+                <div style="margin-top: 10px; font-size: 14px; color: #4a5568;">
+                    <strong>Instructions:</strong> Put Raspberry Pi in backpack, click "Start Walking", then walk naturally.
+                    Your position will update automatically with each stride!
+                </div>
+            </div>
+        </div>
+
+        <!-- Manual Algorithm Selection (Fallback) -->
         <div class="card">
-            <h2>🎯 Select Algorithm to Test</h2>
+            <h2>🎯 Manual Mode (Button Triggered)</h2>
             <div class="algorithm-selector">
                 <button class="btn-naive" onclick="selectAlgorithm('naive')">
                     📊 Naive Dead Reckoning
@@ -511,10 +533,71 @@
             window.location.href = `/api/download/${algo}`;
         }
 
+        function startAutoWalk() {
+            fetch('/api/auto_walk/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('startWalkBtn').disabled = true;
+                    document.getElementById('stopWalkBtn').disabled = false;
+                    document.getElementById('walkStatusText').textContent = 'WALKING 🚶';
+                    document.getElementById('walkStatusText').style.color = '#48bb78';
+                    document.getElementById('autoWalkCard').style.borderColor = '#48bb78';
+                    document.getElementById('autoWalkCard').style.background = '#f0fff4';
+                    alert('✓ Auto-walk started! Start walking naturally.');
+                } else {
+                    alert('Failed to start auto-walk: ' + data.message);
+                }
+            })
+            .catch(err => alert('Error starting auto-walk: ' + err));
+        }
+
+        function stopAutoWalk() {
+            fetch('/api/auto_walk/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('startWalkBtn').disabled = false;
+                    document.getElementById('stopWalkBtn').disabled = true;
+                    document.getElementById('walkStatusText').textContent = 'Stopped';
+                    document.getElementById('walkStatusText').style.color = '#718096';
+                    document.getElementById('autoWalkCard').style.borderColor = '#48bb78';
+                    document.getElementById('autoWalkCard').style.background = 'white';
+                    alert('✓ Auto-walk stopped.');
+                } else {
+                    alert('Failed to stop auto-walk: ' + data.message);
+                }
+            })
+            .catch(err => alert('Error stopping auto-walk: ' + err));
+        }
+
+        function updateAutoWalkStatus() {
+            fetch('/api/auto_walk/status')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.active) {
+                        document.getElementById('walkStatusText').textContent = 'WALKING 🚶';
+                        document.getElementById('walkStatusText').style.color = '#48bb78';
+                    } else {
+                        document.getElementById('walkStatusText').textContent = 'Stopped';
+                        document.getElementById('walkStatusText').style.color = '#718096';
+                    }
+                })
+                .catch(() => {});
+        }
+
         // Auto-update
         setInterval(updateComparison, 1000);
         setInterval(updateTrajectories, 2000);
         setInterval(updateErrors, 3000);
+        setInterval(updateAutoWalkStatus, 1000);  // Check walk status every second
 
         // Keyboard shortcut for stride recording
         document.addEventListener('keydown', (e) => {

@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigation System Launcher</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        .status-card {
+            background: #f7fafc;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 5px solid #cbd5e0;
+        }
+
+        .status-card.connected {
+            border-left-color: #48bb78;
+            background: #f0fff4;
+        }
+
+        .status-card.disconnected {
+            border-left-color: #fc8181;
+            background: #fff5f5;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .status-value {
+            font-size: 0.9em;
+            padding: 5px 15px;
+            border-radius: 20px;
+        }
+
+        .status-value.online {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .status-value.offline {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px 0;
+            transition: all 0.3s;
+        }
+
+        .btn-connect {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-size: 18px;
+        }
+
+        .btn-connect:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-connect:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-disconnect {
+            background: #fc8181;
+            color: white;
+        }
+
+        .btn-disconnect:hover {
+            background: #f56565;
+        }
+
+        .btn-transfer {
+            background: #4299e1;
+            color: white;
+        }
+
+        .btn-transfer:hover {
+            background: #3182ce;
+        }
+
+        .btn-open {
+            background: #48bb78;
+            color: white;
+            font-size: 18px;
+        }
+
+        .btn-open:hover {
+            background: #38a169;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(72, 187, 120, 0.4);
+        }
+
+        .info-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #e2e8f0;
+        }
+
+        .info-item {
+            display: flex;
+            margin: 8px 0;
+            font-size: 0.9em;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #4a5568;
+            min-width: 120px;
+        }
+
+        .info-value {
+            color: #718096;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s ease-in-out infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .message.success {
+            background: #c6f6d5;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+
+        .message.error {
+            background: #fed7d7;
+            color: #742a2a;
+            border: 1px solid #fc8181;
+        }
+
+        .message.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚶 Navigation System</h1>
+        <p class="subtitle">Pedestrian Inertial Navigation with Bayesian Filtering</p>
+
+        <!-- Status Card -->
+        <div class="status-card" id="statusCard">
+            <div class="status-row">
+                <span class="status-label">🔗 Raspberry Pi</span>
+                <span class="status-value" id="piStatus">Checking...</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">📊 Dashboard</span>
+                <span class="status-value" id="dashboardStatus">Checking...</span>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div class="message" id="messageBox"></div>
+
+        <!-- Connection Controls -->
+        <div id="disconnectedView">
+            <button class="btn-connect" id="connectBtn" onclick="connectToPi()">
+                🚀 Connect to Raspberry Pi
+            </button>
+            <button class="btn-transfer" onclick="transferFiles()">
+                📤 Transfer Files to Pi
+            </button>
+        </div>
+
+        <div id="connectedView" style="display: none;">
+            <button class="btn-open" onclick="openDashboard()">
+                🌐 Open Dashboard
+            </button>
+            <button class="btn-disconnect" onclick="disconnectFromPi()">
+                ⏸️ Stop Dashboard
+            </button>
+        </div>
+
+        <!-- Info Section -->
+        <div class="info-section">
+            <div class="info-item">
+                <span class="info-label">Pi Address:</span>
+                <span class="info-value">10.111.224.71</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Dashboard Port:</span>
+                <span class="info-value">5001</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Status:</span>
+                <span class="info-value">Auto-updates every 3 seconds</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showMessage(text, type) {
+            const box = document.getElementById('messageBox');
+            box.textContent = text;
+            box.className = `message ${type} show`;
+            setTimeout(() => box.classList.remove('show'), 5000);
+        }
+
+        function updateStatus() {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(data => {
+                    const card = document.getElementById('statusCard');
+                    const piStatus = document.getElementById('piStatus');
+                    const dashStatus = document.getElementById('dashboardStatus');
+                    const connectedView = document.getElementById('connectedView');
+                    const disconnectedView = document.getElementById('disconnectedView');
+
+                    // Update Pi connection status
+                    if (data.connected) {
+                        piStatus.textContent = '✓ Online';
+                        piStatus.className = 'status-value online';
+                    } else {
+                        piStatus.textContent = '✗ Offline';
+                        piStatus.className = 'status-value offline';
+                    }
+
+                    // Update dashboard status
+                    if (data.dashboard_running) {
+                        dashStatus.textContent = '✓ Running';
+                        dashStatus.className = 'status-value online';
+                        card.className = 'status-card connected';
+                        connectedView.style.display = 'block';
+                        disconnectedView.style.display = 'none';
+                    } else {
+                        dashStatus.textContent = '✗ Stopped';
+                        dashStatus.className = 'status-value offline';
+                        card.className = 'status-card disconnected';
+                        connectedView.style.display = 'none';
+                        disconnectedView.style.display = 'block';
+                    }
+                })
+                .catch(err => console.error('Status check failed:', err));
+        }
+
+        function connectToPi() {
+            const btn = document.getElementById('connectBtn');
+            btn.disabled = true;
+            btn.innerHTML = '🔄 Connecting<span class="spinner"></span>';
+
+            fetch('/api/connect', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                        setTimeout(() => {
+                            window.open(data.url, '_blank');
+                        }, 1000);
+                        updateStatus();
+                    } else {
+                        showMessage(data.message, 'error');
+                    }
+                })
+                .catch(err => {
+                    showMessage('Connection failed: ' + err, 'error');
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '🚀 Connect to Raspberry Pi';
+                });
+        }
+
+        function disconnectFromPi() {
+            if (!confirm('Stop the dashboard on Raspberry Pi?')) return;
+
+            fetch('/api/disconnect', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                        updateStatus();
+                    } else {
+                        showMessage(data.message, 'error');
+                    }
+                })
+                .catch(err => showMessage('Disconnect failed: ' + err, 'error'));
+        }
+
+        function openDashboard() {
+            window.open('http://10.111.224.71:5001', '_blank');
+        }
+
+        function transferFiles() {
+            const btn = event.target;
+            btn.disabled = true;
+            btn.innerHTML = '📤 Transferring<span class="spinner"></span>';
+
+            fetch('/api/transfer', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                    } else {
+                        showMessage(data.message, 'error');
+                    }
+                })
+                .catch(err => {
+                    showMessage('Transfer failed: ' + err, 'error');
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '📤 Transfer Files to Pi';
+                });
+        }
+
+        // Auto-update status
+        updateStatus();
+        setInterval(updateStatus, 3000);
+    </script>
+</body>
+</html>

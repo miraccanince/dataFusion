@@ -9,10 +9,12 @@ Indoor pedestrian navigation using Raspberry Pi + SenseHat with Bayesian filteri
 
 ```
 dataFusion/
+├── launcher.py                 # 🚀 MAIN LAUNCHER (run this on laptop!)
+├── test_system.py              # System tests
+│
 ├── src/                        # Main source code ⭐
 │   ├── bayesian_filter.py      # Bayesian filter (Equation 5 from paper)
-│   ├── web_dashboard.py        # Basic Flask dashboard
-│   └── web_dashboard_advanced.py # Advanced comparison dashboard
+│   └── web_dashboard_advanced.py # Advanced dashboard with auto-walk
 │
 ├── mqtt/                       # MQTT Stream Management ✅ (Part 1 - 15%)
 │   ├── mqtt_cpu_publisher.py           # Program 1: CPU metrics
@@ -107,19 +109,25 @@ dataFusion/
 
 ## 🚀 Quick Start
 
-### 1. Test Bayesian Filter Locally
+### ⭐ EASIEST WAY - Use Launcher (Recommended!)
+
 ```bash
-cd src
-python3 bayesian_filter.py
+# Run on your LAPTOP - opens browser automatically
+python3 launcher.py
+
+# Click "Connect to Raspberry Pi" button
+# Dashboard starts automatically on Pi!
 ```
 
-### 2. Compare Algorithms
+### Alternative Methods:
+
+#### 1. Test Bayesian Filter Locally
 ```bash
 cd examples
 python3 compare_algorithms.py
 ```
 
-### 3. Run Web Dashboard (on Raspberry Pi)
+#### 2. Manual Pi Setup
 ```bash
 # Transfer files to Pi
 ./scripts/transfer_to_pi.sh
