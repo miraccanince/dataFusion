@@ -173,10 +173,14 @@ def simple_kalman_filter(measurement, state):
 
 def detect_stride(accel_data):
     """
-    Detect stride based on vertical acceleration (Z-axis) deviation from gravity
+    Detect stride based on DEVIATION from gravity (orientation-independent)
 
-    Walking creates vertical bouncing that shows up as Z-axis variation.
-    Rotation doesn't create this pattern, so we avoid false positives.
+    KEY INSIGHT:
+    - At rest (any orientation): total magnitude = 1.0g (just gravity)
+    - Walking with bouncing: magnitude varies (1.2g+ foot strike, <0.9g flight)
+    - Smooth rotation: magnitude stays 1.0g (gravity redistributes across axes)
+
+    This works regardless of Pi orientation!
 
     Args:
         accel_data: Accelerometer reading {'x', 'y', 'z'} in g units
@@ -186,29 +190,33 @@ def detect_stride(accel_data):
     """
     global last_stride_time
 
-    # Calculate total acceleration magnitude for logging
+    # Calculate total acceleration magnitude
     accel_mag = np.sqrt(
         accel_data['x']**2 +
         accel_data['y']**2 +
         accel_data['z']**2
     )
 
-    # CRITICAL FIX: Use Z-axis (vertical) acceleration instead of total magnitude
-    # When walking, vertical bouncing creates spikes in Z-axis acceleration
-    # At rest (just gravity): z ≈ 1.0g
-    # When walking (foot strike): z > 1.2g or z < 0.8g (deviation from gravity)
+    # CRITICAL: Calculate DEVIATION from 1.0g gravity baseline
+    # This is orientation-independent!
     #
-    # Rotation changes x/y/z components but shouldn't create large Z deviations
-    # unless you're actually bouncing the Pi up and down
-    z_accel = abs(accel_data['z'])
+    # Examples:
+    # - Pi flat, at rest: mag ≈ 1.0g → deviation ≈ 0.0g
+    # - Pi rotated, at rest: mag ≈ 1.0g → deviation ≈ 0.0g
+    # - Pi rotated smoothly: mag ≈ 1.0g → deviation ≈ 0.0g
+    # - Walking (foot strike): mag ≈ 1.3g → deviation ≈ 0.3g → DETECTED!
+    # - Walking (flight phase): mag ≈ 0.8g → deviation ≈ 0.2g → DETECTED!
+    deviation = abs(accel_mag - 1.0)
 
-    # Detect deviation from gravity baseline (1.0g)
-    # Look for strong vertical acceleration indicating foot strike
-    if z_accel > stride_threshold or z_accel < (2.0 - stride_threshold):
+    # Detect significant deviation indicating vertical bouncing
+    # stride_threshold = 1.2g means we detect when deviation > 0.2g
+    threshold_deviation = stride_threshold - 1.0
+
+    if deviation > threshold_deviation:
         current_time = time.time()
         if (current_time - last_stride_time) > min_stride_interval:
             last_stride_time = current_time
-            logger.info(f"   [STRIDE DETECTED] Z={z_accel:.2f}g, Total={accel_mag:.2f}g")
+            logger.info(f"   [STRIDE DETECTED] Magnitude={accel_mag:.2f}g, Deviation={deviation:.2f}g")
             return True
 
     return False
@@ -339,7 +347,9 @@ def auto_walk_monitor():
             sample_count += 1
             if sample_count % 40 == 0:  # Every 2 seconds (40 samples * 0.05s)
                 accel_mag = np.sqrt(accel['x']**2 + accel['y']**2 + accel['z']**2)
-                logger.info(f"   Accel magnitude: {accel_mag:.2f}g (threshold: {stride_threshold}g)")
+                deviation = abs(accel_mag - 1.0)
+                threshold_dev = stride_threshold - 1.0
+                logger.info(f"   Accel: mag={accel_mag:.2f}g, deviation={deviation:.2f}g (threshold={threshold_dev:.2f}g)")
 
             # Detect stride
             if detect_stride(accel):
