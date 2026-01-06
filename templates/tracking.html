@@ -193,14 +193,41 @@
                 </div>
             </div>
 
-            <!-- Start/Stop Buttons -->
+            <!-- Joystick Control Buttons (NEW - Replaces old accelerometer mode) -->
             <div style="display: flex; gap: 10px; margin: 10px auto; max-width: 500px;">
-                <button id="startBtn" onclick="startTracking()" style="flex: 1; padding: 12px; font-size: 16px; background: #48bb78; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
-                    START WALKING
+                <button id="startBtn" onclick="startJoystickWalk()" style="flex: 1; padding: 12px; font-size: 16px; background: #48bb78; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                    🕹️ START WALKING (Joystick)
                 </button>
-                <button id="stopBtn" onclick="stopTracking()" disabled style="flex: 1; padding: 12px; font-size: 16px; background: #cbd5e0; color: white; border: none; border-radius: 8px; cursor: not-allowed; font-weight: bold;">
-                    STOP WALKING
+                <button id="stopBtn" onclick="stopJoystickWalk()" disabled style="flex: 1; padding: 12px; font-size: 16px; background: #cbd5e0; color: white; border: none; border-radius: 8px; cursor: not-allowed; font-weight: bold;">
+                    🛑 STOP WALKING
                 </button>
+            </div>
+
+            <!-- Live IMU & LED Display -->
+            <div style="display: flex; gap: 15px; margin: 15px auto; max-width: 800px;">
+                <!-- Live IMU Readings -->
+                <div style="flex: 1; background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px;">
+                    <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; text-align: center;">🧭 Live IMU Readings</div>
+                    <div id="imuDisplay" style="font-size: 12px; line-height: 1.8;">
+                        <div><strong>Roll:</strong> <span id="imuRoll">0.0</span>° (tilt left/right)</div>
+                        <div><strong>Pitch:</strong> <span id="imuPitch">0.0</span>° (tilt forward/back)</div>
+                        <div><strong>Yaw:</strong> <span id="imuYaw">0.0</span>° <span id="imuDirection" style="color: #63b3ed; font-weight: bold;">(North)</span></div>
+                        <div style="margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.2); font-size: 10px; opacity: 0.8;">
+                            Direction determined from yaw (compass heading)
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LED Matrix Display (8x8 grid) -->
+                <div style="flex: 1; background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px;">
+                    <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; text-align: center;">💡 SenseHat LED Matrix</div>
+                    <div id="ledMatrix" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-width: 200px; margin: 0 auto;">
+                        <!-- 64 pixels will be inserted here by JavaScript -->
+                    </div>
+                    <div style="text-align: center; margin-top: 8px; font-size: 10px; opacity: 0.8;">
+                        Real-time LED sync with SenseHat
+                    </div>
+                </div>
             </div>
 
             <!-- Mock Test and Screenshot Buttons -->
@@ -798,20 +825,27 @@
                 .catch(err => console.error('Error fetching data:', err));
         }
 
-        function startTracking() {
-            console.log('[START WALKING] Button clicked - initiating tracking...');
+        // =====================
+        // JOYSTICK CONTROL FUNCTIONS (NEW - Replaced accelerometer mode)
+        // =====================
 
-            fetch('/api/auto_walk/start', {
+        let joystickUpdateInterval = null;
+        let ledMatrixUpdateInterval = null;
+
+        function startJoystickWalk() {
+            console.log('[START JOYSTICK] Button clicked - starting joystick mode...');
+
+            fetch('/api/joystick_walk/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             })
                 .then(response => response.json())
                 .then(data => {
-                    console.log('[START WALKING] Response:', data);
+                    console.log('[START JOYSTICK] Response:', data);
 
                     if (data.success) {
                         // Update UI
-                        document.getElementById('statusTitle').textContent = '✓ TRACKING ACTIVE';
+                        document.getElementById('statusTitle').textContent = '🕹️ JOYSTICK MODE ACTIVE';
                         document.getElementById('statusCard').style.background = 'linear-gradient(135deg, #48bb78 0%, #38a169 100%)';
                         document.getElementById('startBtn').disabled = true;
                         document.getElementById('startBtn').style.background = '#cbd5e0';
@@ -820,34 +854,37 @@
                         document.getElementById('stopBtn').style.background = '#f56565';
                         document.getElementById('stopBtn').style.cursor = 'pointer';
 
-                        // Show confirmation alert
-                        alert('✓ Tracking Started!\n\n' +
-                              'IMU values (Roll, Pitch, Yaw) should now update continuously.\n\n' +
-                              'Walk vigorously to detect strides (acceleration > 1.2g).\n\n' +
-                              'Check Pi terminal for acceleration readings every 2 seconds.');
+                        // Start polling for IMU updates and LED matrix
+                        startJoystickUpdates();
 
-                        console.log('[START WALKING] ✓ Tracking successfully started');
+                        // Show confirmation alert
+                        alert('🕹️ Joystick Mode Started!\n\n' +
+                              'Press the MIDDLE button (push down) on the SenseHat joystick for each stride.\n\n' +
+                              'Direction is automatically detected from Pi orientation (compass heading).\n\n' +
+                              'Watch the LED matrix display and IMU readings update in real-time!');
+
+                        console.log('[START JOYSTICK] ✓ Joystick mode successfully started');
                     } else {
-                        console.error('[START WALKING] Failed to start:', data);
-                        alert('Failed to start tracking: ' + (data.error || 'Unknown error'));
+                        console.error('[START JOYSTICK] Failed to start:', data);
+                        alert('Failed to start joystick mode: ' + (data.error || data.message || 'Unknown error'));
                     }
                 })
                 .catch(err => {
-                    console.error('[START WALKING] Error:', err);
-                    alert('Error starting tracking: ' + err.message + '\n\nCheck if dashboard is connected to Raspberry Pi.');
+                    console.error('[START JOYSTICK] Error:', err);
+                    alert('Error starting joystick mode: ' + err.message + '\n\nCheck if dashboard is connected to Raspberry Pi.');
                 });
         }
 
-        function stopTracking() {
-            console.log('[STOP WALKING] Button clicked - stopping tracking...');
+        function stopJoystickWalk() {
+            console.log('[STOP JOYSTICK] Button clicked - stopping joystick mode...');
 
-            fetch('/api/auto_walk/stop', {
+            fetch('/api/joystick_walk/stop', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             })
                 .then(response => response.json())
                 .then(data => {
-                    console.log('[STOP WALKING] Response:', data);
+                    console.log('[STOP JOYSTICK] Response:', data);
 
                     if (data.success) {
                         // Update UI
@@ -860,24 +897,132 @@
                         document.getElementById('stopBtn').style.background = '#cbd5e0';
                         document.getElementById('stopBtn').style.cursor = 'not-allowed';
 
+                        // Stop polling
+                        stopJoystickUpdates();
+
                         // Show confirmation alert
-                        alert('⏸️ Tracking Stopped!\n\n' +
+                        alert('⏸️ Joystick Mode Stopped!\n\n' +
                               `Captured ${data.stride_count || 0} strides during this session.\n\n` +
                               'You can now:\n' +
                               '- Take a screenshot for your report\n' +
                               '- Generate a performance report\n' +
                               '- Start a new tracking session');
 
-                        console.log(`[STOP WALKING] ✓ Tracking stopped (${data.stride_count || 0} strides captured)`);
+                        console.log(`[STOP JOYSTICK] ✓ Joystick mode stopped (${data.stride_count || 0} strides captured)`);
                     } else {
-                        console.error('[STOP WALKING] Failed to stop:', data);
-                        alert('Failed to stop tracking: ' + (data.error || 'Unknown error'));
+                        console.error('[STOP JOYSTICK] Failed to stop:', data);
+                        alert('Failed to stop joystick mode: ' + (data.error || 'Unknown error'));
                     }
                 })
                 .catch(err => {
-                    console.error('[STOP WALKING] Error:', err);
-                    alert('Error stopping tracking: ' + err.message);
+                    console.error('[STOP JOYSTICK] Error:', err);
+                    alert('Error stopping joystick mode: ' + err.message);
                 });
+        }
+
+        function startJoystickUpdates() {
+            // Poll for IMU updates every 200ms
+            joystickUpdateInterval = setInterval(updateIMUDisplay, 200);
+            // Poll for LED matrix updates every 200ms
+            ledMatrixUpdateInterval = setInterval(updateLEDMatrix, 200);
+            console.log('[JOYSTICK UPDATES] Started polling for IMU and LED updates');
+        }
+
+        function stopJoystickUpdates() {
+            if (joystickUpdateInterval) {
+                clearInterval(joystickUpdateInterval);
+                joystickUpdateInterval = null;
+            }
+            if (ledMatrixUpdateInterval) {
+                clearInterval(ledMatrixUpdateInterval);
+                ledMatrixUpdateInterval = null;
+            }
+            console.log('[JOYSTICK UPDATES] Stopped polling');
+        }
+
+        function updateIMUDisplay() {
+            fetch('/api/joystick_walk/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.imu) {
+                        // Update IMU values
+                        document.getElementById('imuRoll').textContent = data.imu.roll.toFixed(1);
+                        document.getElementById('imuPitch').textContent = data.imu.pitch.toFixed(1);
+                        document.getElementById('imuYaw').textContent = data.imu.yaw.toFixed(1);
+
+                        // Determine direction from yaw
+                        const yaw = data.imu.yaw;
+                        const direction = getDirectionFromYaw(yaw);
+                        document.getElementById('imuDirection').textContent = `(${direction})`;
+                    }
+                })
+                .catch(err => console.error('[IMU UPDATE] Error:', err));
+        }
+
+        function updateLEDMatrix() {
+            fetch('/api/led_matrix')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.matrix && data.matrix.length === 64) {
+                        // Update each LED pixel
+                        for (let i = 0; i < 64; i++) {
+                            const pixel = document.getElementById(`led-${i}`);
+                            if (pixel) {
+                                const rgb = data.matrix[i];
+                                pixel.style.background = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+                            }
+                        }
+                    }
+                })
+                .catch(err => console.error('[LED UPDATE] Error:', err));
+        }
+
+        function getDirectionFromYaw(yaw) {
+            // Normalize yaw to 0-360
+            const normalized = ((yaw % 360) + 360) % 360;
+
+            if (normalized >= 337.5 || normalized < 22.5) return 'North';
+            if (normalized >= 22.5 && normalized < 67.5) return 'Northeast';
+            if (normalized >= 67.5 && normalized < 112.5) return 'East';
+            if (normalized >= 112.5 && normalized < 157.5) return 'Southeast';
+            if (normalized >= 157.5 && normalized < 202.5) return 'South';
+            if (normalized >= 202.5 && normalized < 247.5) return 'Southwest';
+            if (normalized >= 247.5 && normalized < 292.5) return 'West';
+            if (normalized >= 292.5 && normalized < 337.5) return 'Northwest';
+            return 'Unknown';
+        }
+
+        function initializeLEDMatrix() {
+            // Create 64 LED pixel divs (8x8 grid)
+            const ledMatrix = document.getElementById('ledMatrix');
+            ledMatrix.innerHTML = ''; // Clear existing content
+
+            for (let i = 0; i < 64; i++) {
+                const pixel = document.createElement('div');
+                pixel.id = `led-${i}`;
+                pixel.style.width = '100%';
+                pixel.style.height = '20px';
+                pixel.style.background = 'rgb(0, 0, 0)'; // Start with black
+                pixel.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+                pixel.style.borderRadius = '2px';
+                ledMatrix.appendChild(pixel);
+            }
+
+            console.log('[LED MATRIX] Initialized 64 pixels');
+        }
+
+        // =====================
+        // OLD FUNCTIONS (Kept for compatibility with other features)
+        // =====================
+
+        function startTracking() {
+            console.log('[START WALKING] Legacy function - redirecting to joystick mode...');
+            startJoystickWalk();
+        }
+
+        function stopTracking() {
+            console.log('[STOP WALKING] Legacy function - redirecting to joystick mode...');
+            stopJoystickWalk();
         }
 
         function checkConnection() {
@@ -1234,10 +1379,16 @@
                 });
         }
 
-        // Check MQTT status on page load and every 5 seconds
+        // Initialize page on load
         document.addEventListener('DOMContentLoaded', function() {
+            // Initialize LED matrix display
+            initializeLEDMatrix();
+
+            // Check MQTT status on page load and every 5 seconds
             checkMQTTStatus();
             setInterval(checkMQTTStatus, 5000);
+
+            console.log('[PAGE LOAD] Dashboard initialized - LED matrix ready');
         });
     </script>
 </body>

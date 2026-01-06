@@ -873,116 +873,17 @@ def get_floor_plan():
         'grid': floor_plan.grid.tolist()  # Convert numpy array to list for JSON
     })
 
-@app.route('/api/auto_walk/start', methods=['POST'])
-def start_auto_walk():
-    """Start automatic stride detection"""
-    try:
-        global auto_walk_active, auto_walk_thread
-
-        if auto_walk_active:
-            return jsonify({'success': False, 'message': 'Auto-walk already active'})
-
-        # Parse optional parameters (use get_json(silent=True) to handle empty body)
-        data = request.get_json(silent=True) or {}
-        if 'threshold' in data:
-            global stride_threshold
-            stride_threshold = float(data['threshold'])
-
-        logger.info("[START AUTO-WALK] Starting automatic stride detection...")
-
-        # Start background thread
-        auto_walk_active = True
-        auto_walk_thread = threading.Thread(target=auto_walk_monitor, daemon=True)
-        auto_walk_thread.start()
-
-        logger.info("[START AUTO-WALK] ✓ Background thread started successfully")
-
-        return jsonify({
-            'success': True,
-            'message': 'Auto-walk started',
-            'threshold': stride_threshold,
-            'min_interval': min_stride_interval
-        })
-
-    except Exception as e:
-        logger.error(f"[START AUTO-WALK] Error: {str(e)}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'message': f'Failed to start auto-walk: {str(e)}'
-        }), 500
-
-@app.route('/api/auto_walk/stop', methods=['POST'])
-def stop_auto_walk():
-    """Stop automatic stride detection"""
-    try:
-        global auto_walk_active, auto_walk_thread, stride_count
-
-        if not auto_walk_active:
-            return jsonify({'success': False, 'message': 'Auto-walk not active'})
-
-        logger.info("[STOP AUTO-WALK] Stopping automatic stride detection...")
-
-        # Stop background thread
-        auto_walk_active = False
-
-        # Wait for thread to finish (with timeout)
-        if auto_walk_thread and auto_walk_thread.is_alive():
-            auto_walk_thread.join(timeout=2.0)
-
-        logger.info(f"[STOP AUTO-WALK] ✓ Stopped (captured {stride_count} strides)")
-
-        return jsonify({
-            'success': True,
-            'message': 'Auto-walk stopped',
-            'stride_count': stride_count
-        })
-
-    except Exception as e:
-        logger.error(f"[STOP AUTO-WALK] Error: {str(e)}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'message': f'Failed to stop auto-walk: {str(e)}'
-        }), 500
-
-@app.route('/api/auto_walk/status')
-def get_auto_walk_status():
-    """Get auto-walk status"""
-    return jsonify({
-        'active': auto_walk_active,
-        'stride_count': stride_count,
-        'threshold': stride_threshold,
-        'min_interval': min_stride_interval,
-        'last_stride_time': last_stride_time
-    })
-
 @app.route('/api/joystick_walk/start', methods=['POST'])
 def start_joystick_walk():
-    """Start joystick button-based stride detection"""
+    """Start joystick button-based stride detection (ONLY MODE - no accelerometer)"""
     try:
-        global joystick_walk_active, joystick_walk_thread, stride_mode, auto_walk_active
-
-        # Stop accelerometer mode if it's running
-        if auto_walk_active:
-            logger.info("[START JOYSTICK-WALK] Stopping accelerometer mode first...")
-            auto_walk_active = False
-            if auto_walk_thread and auto_walk_thread.is_alive():
-                auto_walk_thread.join(timeout=2.0)
+        global joystick_walk_active, joystick_walk_thread
 
         if joystick_walk_active:
             return jsonify({'success': False, 'message': 'Joystick-walk already active'})
 
-        # Parse parameters
-        data = request.get_json(silent=True) or {}
-        new_mode = data.get('mode', 'joystick_middle')
-
-        # Validate mode
-        if new_mode not in ['joystick_middle', 'joystick_directional']:
-            return jsonify({'success': False, 'message': f'Invalid mode: {new_mode}'}), 400
-
-        stride_mode = new_mode
-        logger.info(f"[START JOYSTICK-WALK] Starting joystick stride detection (mode: {stride_mode})...")
+        logger.info("[START JOYSTICK-WALK] Starting joystick stride detection...")
+        logger.info("[START JOYSTICK-WALK] Press the MIDDLE button on SenseHat for each stride!")
 
         # Start background thread
         joystick_walk_active = True
@@ -993,8 +894,7 @@ def start_joystick_walk():
 
         return jsonify({
             'success': True,
-            'message': 'Joystick-walk started',
-            'mode': stride_mode
+            'message': 'Joystick-walk started - Press MIDDLE button for each stride!'
         })
 
     except Exception as e:
@@ -1044,54 +944,19 @@ def get_joystick_walk_status():
     """Get joystick-walk status"""
     return jsonify({
         'active': joystick_walk_active,
-        'mode': stride_mode,
-        'stride_count': stride_count
+        'stride_count': stride_count,
+        'imu': latest_imu  # Include live IMU readings
     })
 
-@app.route('/api/stride_mode', methods=['GET', 'POST'])
-def stride_mode_api():
-    """Get or set the stride detection mode"""
-    global stride_mode, auto_walk_active, joystick_walk_active
-
-    if request.method == 'GET':
+@app.route('/api/led_matrix')
+def get_led_matrix():
+    """Get current LED matrix state for display on web UI"""
+    with led_matrix_lock:
         return jsonify({
-            'mode': stride_mode,
-            'auto_walk_active': auto_walk_active,
-            'joystick_walk_active': joystick_walk_active,
-            'available_modes': ['accelerometer', 'joystick_middle', 'joystick_directional']
+            'matrix': current_led_matrix,  # 64 pixels, each [R, G, B]
+            'stride_count': stride_count,
+            'joystick_active': joystick_walk_active
         })
-
-    elif request.method == 'POST':
-        try:
-            data = request.get_json()
-            new_mode = data.get('mode')
-
-            if new_mode not in ['accelerometer', 'joystick_middle', 'joystick_directional']:
-                return jsonify({'success': False, 'message': f'Invalid mode: {new_mode}'}), 400
-
-            # Stop all active modes first
-            if auto_walk_active:
-                auto_walk_active = False
-                if auto_walk_thread and auto_walk_thread.is_alive():
-                    auto_walk_thread.join(timeout=2.0)
-
-            if joystick_walk_active:
-                joystick_walk_active = False
-                if joystick_walk_thread and joystick_walk_thread.is_alive():
-                    joystick_walk_thread.join(timeout=2.0)
-
-            stride_mode = new_mode
-            logger.info(f"[STRIDE MODE] Changed to: {stride_mode}")
-
-            return jsonify({
-                'success': True,
-                'mode': stride_mode,
-                'message': f'Stride mode changed to {stride_mode}'
-            })
-
-        except Exception as e:
-            logger.error(f"[STRIDE MODE] Error: {str(e)}", exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/generate_report', methods=['POST'])
 def generate_report():
