@@ -799,9 +799,13 @@
         }
 
         function startTracking() {
+            console.log('[START WALKING] Button clicked - initiating tracking...');
+
             fetch('/api/auto_walk/start', { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
+                    console.log('[START WALKING] Response:', data);
+
                     if (data.success) {
                         // Update UI
                         document.getElementById('statusTitle').textContent = '✓ TRACKING ACTIVE';
@@ -812,15 +816,33 @@
                         document.getElementById('stopBtn').disabled = false;
                         document.getElementById('stopBtn').style.background = '#f56565';
                         document.getElementById('stopBtn').style.cursor = 'pointer';
+
+                        // Show confirmation alert
+                        alert('✓ Tracking Started!\n\n' +
+                              'IMU values (Roll, Pitch, Yaw) should now update continuously.\n\n' +
+                              'Walk vigorously to detect strides (acceleration > 1.2g).\n\n' +
+                              'Check Pi terminal for acceleration readings every 2 seconds.');
+
+                        console.log('[START WALKING] ✓ Tracking successfully started');
+                    } else {
+                        console.error('[START WALKING] Failed to start:', data);
+                        alert('Failed to start tracking: ' + (data.error || 'Unknown error'));
                     }
                 })
-                .catch(err => console.error('Error starting tracking:', err));
+                .catch(err => {
+                    console.error('[START WALKING] Error:', err);
+                    alert('Error starting tracking: ' + err.message + '\n\nCheck if dashboard is connected to Raspberry Pi.');
+                });
         }
 
         function stopTracking() {
+            console.log('[STOP WALKING] Button clicked - stopping tracking...');
+
             fetch('/api/auto_walk/stop', { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
+                    console.log('[STOP WALKING] Response:', data);
+
                     if (data.success) {
                         // Update UI
                         document.getElementById('statusTitle').textContent = '⏸️ TRACKING STOPPED';
@@ -831,9 +853,25 @@
                         document.getElementById('stopBtn').disabled = true;
                         document.getElementById('stopBtn').style.background = '#cbd5e0';
                         document.getElementById('stopBtn').style.cursor = 'not-allowed';
+
+                        // Show confirmation alert
+                        alert('⏸️ Tracking Stopped!\n\n' +
+                              `Captured ${data.stride_count || 0} strides during this session.\n\n` +
+                              'You can now:\n' +
+                              '- Take a screenshot for your report\n' +
+                              '- Generate a performance report\n' +
+                              '- Start a new tracking session');
+
+                        console.log(`[STOP WALKING] ✓ Tracking stopped (${data.stride_count || 0} strides captured)`);
+                    } else {
+                        console.error('[STOP WALKING] Failed to stop:', data);
+                        alert('Failed to stop tracking: ' + (data.error || 'Unknown error'));
                     }
                 })
-                .catch(err => console.error('Error stopping tracking:', err));
+                .catch(err => {
+                    console.error('[STOP WALKING] Error:', err);
+                    alert('Error stopping tracking: ' + err.message);
+                });
         }
 
         function checkConnection() {

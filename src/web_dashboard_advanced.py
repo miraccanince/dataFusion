@@ -295,14 +295,33 @@ def process_stride_all_algorithms(yaw):
 
 def auto_walk_monitor():
     """Background thread that monitors for automatic stride detection"""
-    global auto_walk_active
+    global auto_walk_active, latest_imu
 
     logger.info("🚶 Auto-walk monitor started")
+    logger.info(f"   Stride threshold: {stride_threshold}g")
+    logger.info(f"   Min stride interval: {min_stride_interval}s")
+    logger.info(f"   💡 TIP: Walk vigorously to trigger stride detection!")
+
+    sample_count = 0
 
     while auto_walk_active:
         try:
             # Read accelerometer
             accel = sense.get_accelerometer_raw()
+
+            # ALWAYS update IMU readings (so UI shows live sensor data)
+            orientation_deg = sense.get_orientation_degrees()
+            latest_imu = {
+                'roll': round(orientation_deg.get('roll', 0), 1),
+                'pitch': round(orientation_deg.get('pitch', 0), 1),
+                'yaw': round(orientation_deg.get('yaw', 0), 1)
+            }
+
+            # Log acceleration magnitude every 2 seconds (for debugging)
+            sample_count += 1
+            if sample_count % 40 == 0:  # Every 2 seconds (40 samples * 0.05s)
+                accel_mag = np.sqrt(accel['x']**2 + accel['y']**2 + accel['z']**2)
+                logger.info(f"   Accel magnitude: {accel_mag:.2f}g (threshold: {stride_threshold}g)")
 
             # Detect stride
             if detect_stride(accel):
@@ -1075,73 +1094,74 @@ def mqtt_start(program):
             if mqtt_processes['cpu_publisher'] and mqtt_processes['cpu_publisher'].poll() is None:
                 return jsonify({'success': False, 'message': 'CPU publisher already running'})
 
+            logger.info("🚀 Starting CPU Publisher...")
             proc = subprocess.Popen(
-                ['python3', os.path.join(mqtt_dir, 'mqtt_cpu_publisher.py'), '--broker', 'localhost'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                ['python3', os.path.join(mqtt_dir, 'mqtt_cpu_publisher.py'), '--broker', 'localhost']
+                # Output goes to terminal (no stdout/stderr redirect)
             )
             mqtt_processes['cpu_publisher'] = proc
-            return jsonify({'success': True, 'message': 'CPU publisher started'})
+            logger.info(f"✓ CPU Publisher started (PID: {proc.pid})")
+            return jsonify({'success': True, 'message': 'CPU publisher started - check terminal for output'})
 
         elif program == 'location_publisher':
             if mqtt_processes['location_publisher'] and mqtt_processes['location_publisher'].poll() is None:
                 return jsonify({'success': False, 'message': 'Location publisher already running'})
 
+            logger.info("🚀 Starting Location Publisher...")
             proc = subprocess.Popen(
-                ['python3', os.path.join(mqtt_dir, 'mqtt_location_publisher.py'), '--broker', 'localhost'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                ['python3', os.path.join(mqtt_dir, 'mqtt_location_publisher.py'), '--broker', 'localhost']
             )
             mqtt_processes['location_publisher'] = proc
-            return jsonify({'success': True, 'message': 'Location publisher started'})
+            logger.info(f"✓ Location Publisher started (PID: {proc.pid})")
+            return jsonify({'success': True, 'message': 'Location publisher started - check terminal for output'})
 
         elif program == 'windowed_1s':
             if mqtt_processes['windowed_1s'] and mqtt_processes['windowed_1s'].poll() is None:
                 return jsonify({'success': False, 'message': 'Windowed subscriber (1s) already running'})
 
+            logger.info("🚀 Starting Windowed Subscriber (1s window)...")
             proc = subprocess.Popen(
-                ['python3', os.path.join(mqtt_dir, 'mqtt_subscriber_windowed.py'), '--broker', 'localhost', '--window', '1.0'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                ['python3', os.path.join(mqtt_dir, 'mqtt_subscriber_windowed.py'), '--broker', 'localhost', '--window', '1.0']
             )
             mqtt_processes['windowed_1s'] = proc
-            return jsonify({'success': True, 'message': 'Windowed subscriber (1s) started'})
+            logger.info(f"✓ Windowed Subscriber (1s) started (PID: {proc.pid})")
+            return jsonify({'success': True, 'message': 'Windowed subscriber (1s) started - check terminal for output'})
 
         elif program == 'windowed_5s':
             if mqtt_processes['windowed_5s'] and mqtt_processes['windowed_5s'].poll() is None:
                 return jsonify({'success': False, 'message': 'Windowed subscriber (5s) already running'})
 
+            logger.info("🚀 Starting Windowed Subscriber (5s window)...")
             proc = subprocess.Popen(
-                ['python3', os.path.join(mqtt_dir, 'mqtt_subscriber_windowed.py'), '--broker', 'localhost', '--window', '5.0'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                ['python3', os.path.join(mqtt_dir, 'mqtt_subscriber_windowed.py'), '--broker', 'localhost', '--window', '5.0']
             )
             mqtt_processes['windowed_5s'] = proc
-            return jsonify({'success': True, 'message': 'Windowed subscriber (5s) started'})
+            logger.info(f"✓ Windowed Subscriber (5s) started (PID: {proc.pid})")
+            return jsonify({'success': True, 'message': 'Windowed subscriber (5s) started - check terminal for output'})
 
         elif program == 'bernoulli':
             if mqtt_processes['bernoulli'] and mqtt_processes['bernoulli'].poll() is None:
                 return jsonify({'success': False, 'message': 'Bernoulli subscriber already running'})
 
+            logger.info("🚀 Starting Bernoulli Sampling Subscriber...")
             proc = subprocess.Popen(
-                ['python3', os.path.join(mqtt_dir, 'mqtt_subscriber_bernoulli.py'), '--broker', 'localhost'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                ['python3', os.path.join(mqtt_dir, 'mqtt_subscriber_bernoulli.py'), '--broker', 'localhost']
             )
             mqtt_processes['bernoulli'] = proc
-            return jsonify({'success': True, 'message': 'Bernoulli subscriber started'})
+            logger.info(f"✓ Bernoulli Subscriber started (PID: {proc.pid})")
+            return jsonify({'success': True, 'message': 'Bernoulli subscriber started - check terminal for output'})
 
         elif program == 'malfunction':
             if mqtt_processes['malfunction'] and mqtt_processes['malfunction'].poll() is None:
                 return jsonify({'success': False, 'message': 'Malfunction detector already running'})
 
+            logger.info("🚀 Starting Malfunction Detector...")
             proc = subprocess.Popen(
-                ['python3', os.path.join(mqtt_dir, 'malfunction_detection.py'), '--broker', 'localhost'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                ['python3', os.path.join(mqtt_dir, 'malfunction_detection.py'), '--broker', 'localhost']
             )
             mqtt_processes['malfunction'] = proc
-            return jsonify({'success': True, 'message': 'Malfunction detector started'})
+            logger.info(f"✓ Malfunction Detector started (PID: {proc.pid})")
+            return jsonify({'success': True, 'message': 'Malfunction detector started - check terminal for output'})
 
         else:
             return jsonify({'success': False, 'message': f'Unknown program: {program}'})
