@@ -3,7 +3,7 @@
 # Usage: ./get_data_from_pi.sh
 
 PI_USER="jdmc"
-PI_HOST="10.111.224.71"
+PI_HOST="10.49.216.71"
 PI_ADDR="${PI_USER}@${PI_HOST}"
 
 echo "=========================================="

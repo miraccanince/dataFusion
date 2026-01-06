@@ -1,7 +1,7 @@
 """
 Advanced Web Dashboard with Data Comparison
 ============================================
-Access from browser: http://10.111.224.71:5001
+Access from browser: http://10.49.216.71:5001
 
 NEW FEATURES:
 - Compare raw vs filtered sensor data
@@ -14,18 +14,53 @@ Usage: python3 web_dashboard_advanced.py
 """
 
 from flask import Flask, render_template, jsonify, send_file, request
-from sense_hat import SenseHat
 import numpy as np
 import json
 import csv
 import io
 import time
 import threading
+import logging
+import subprocess
+import socket
 from datetime import datetime
 from collections import deque
 from bayesian_filter import BayesianNavigationFilter, FloorPlanPDF
+from kalman_filter import KalmanFilter
+from particle_filter import ParticleFilter
 
-app = Flask(__name__)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler('dashboard.log'),
+        logging.StreamHandler()  # Also print to console
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Try to import real SenseHat, fall back to mock if not available
+IS_REAL_HARDWARE = False
+try:
+    from sense_hat import SenseHat
+    IS_REAL_HARDWARE = True
+    logger.info("✓ Using real SenseHat hardware")
+except ImportError:
+    from mock_sense_hat import SenseHat
+    IS_REAL_HARDWARE = False
+    logger.warning("⚠️  Using mock SenseHat (testing mode - no Raspberry Pi)")
+
+import os
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Configure Flask to find templates in parent directory
+template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
+app = Flask(__name__, template_folder=template_dir)
+
 sense = SenseHat()
 sense.set_imu_config(True, True, True)
 
@@ -45,14 +80,23 @@ min_stride_interval = 0.3  # Minimum 0.3s between strides
 trajectories = {
     'naive': [],
     'bayesian': [],
+    'kalman': [],
     'particle': [],
     'ground_truth': []  # Manual entry by user
 }
 
 positions = {
-    'naive': {'x': 0.0, 'y': 0.0},
-    'bayesian': {'x': 2.0, 'y': 4.0},  # Start at floor plan origin
-    'particle': {'x': 0.0, 'y': 0.0}
+    'naive': {'x': 2.0, 'y': 4.0},
+    'bayesian': {'x': 2.0, 'y': 4.0},
+    'kalman': {'x': 2.0, 'y': 4.0},
+    'particle': {'x': 2.0, 'y': 4.0}
+}
+
+# Latest IMU readings (roll, pitch, yaw in degrees)
+latest_imu = {
+    'roll': 0.0,
+    'pitch': 0.0,
+    'yaw': 0.0
 }
 
 # Sensor data buffers (last 50 readings)
@@ -70,11 +114,45 @@ kalman_state = {
     'R': 0.1    # Measurement noise
 }
 
-# Initialize Bayesian filter with floor plan
-print("Initializing Bayesian Navigation Filter...")
-floor_plan = FloorPlanPDF(width_m=20.0, height_m=10.0, resolution=0.1)
+# Initialize floor plan and all filters
+logger.info("Initializing filters...")
+floor_plan = FloorPlanPDF(width_m=10.0, height_m=10.0, resolution=0.1)
 bayesian_filter = BayesianNavigationFilter(floor_plan, stride_length=STRIDE_LENGTH)
-print("✓ Bayesian filter ready!")
+kalman_filter = KalmanFilter(initial_x=2.0, initial_y=4.0, dt=0.5)
+particle_filter = ParticleFilter(floor_plan, n_particles=200, initial_x=2.0, initial_y=4.0)
+logger.info("✓ All filters ready! (Bayesian, Kalman, Particle)")
+
+# MQTT Control State
+mqtt_processes = {
+    'cpu_publisher': None,
+    'location_publisher': None,
+    'windowed_1s': None,
+    'windowed_5s': None,
+    'bernoulli': None,
+    'malfunction': None
+}
+
+mqtt_stats = {
+    'broker_running': False,
+    'cpu_publisher_active': False,
+    'location_publisher_active': False,
+    'windowed_1s_active': False,
+    'windowed_5s_active': False,
+    'bernoulli_active': False,
+    'malfunction_active': False,
+    'last_check': None
+}
+
+def check_mqtt_broker():
+    """Check if MQTT broker (Mosquitto) is running on port 1883"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(('localhost', 1883))
+        sock.close()
+        return result == 0
+    except:
+        return False
 
 def simple_kalman_filter(measurement, state):
     """Simple 1D Kalman filter for heading"""
@@ -124,14 +202,24 @@ def detect_stride(accel_data):
 
 def process_stride_all_algorithms(yaw):
     """Process a detected stride for all algorithms"""
-    global stride_count
+    global stride_count, latest_imu
 
-    # Update all algorithms
-    # NAIVE algorithm
-    new_x = positions['naive']['x'] + STRIDE_LENGTH * np.sin(yaw)
-    new_y = positions['naive']['y'] + STRIDE_LENGTH * np.cos(yaw)
+    # Update IMU readings (get current orientation)
+    try:
+        orientation = sense.get_orientation_degrees()
+        latest_imu = {
+            'roll': round(orientation.get('roll', 0), 1),
+            'pitch': round(orientation.get('pitch', 0), 1),
+            'yaw': round(orientation.get('yaw', 0), 1)
+        }
+    except Exception as e:
+        logger.warning(f"Failed to read IMU orientation: {e}")
+
+    # 1. NAIVE algorithm (simple dead reckoning)
+    # Standard math: x = cos(angle), y = sin(angle)
+    new_x = positions['naive']['x'] + STRIDE_LENGTH * np.cos(yaw)
+    new_y = positions['naive']['y'] + STRIDE_LENGTH * np.sin(yaw)
     positions['naive'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
-
     trajectories['naive'].append({
         'stride': stride_count,
         'timestamp': datetime.utcnow().isoformat(),
@@ -141,13 +229,12 @@ def process_stride_all_algorithms(yaw):
         'algorithm': 'naive'
     })
 
-    # BAYESIAN algorithm
+    # 2. BAYESIAN FILTER (uses floor plan constraints)
     estimated_pos = bayesian_filter.update(heading=yaw, stride_length=STRIDE_LENGTH)
     positions['bayesian'] = {
         'x': round(estimated_pos['x'], 3),
         'y': round(estimated_pos['y'], 3)
     }
-
     trajectories['bayesian'].append({
         'stride': stride_count,
         'timestamp': datetime.utcnow().isoformat(),
@@ -157,11 +244,28 @@ def process_stride_all_algorithms(yaw):
         'algorithm': 'bayesian'
     })
 
-    # PARTICLE algorithm (placeholder)
-    new_x = positions['particle']['x'] + STRIDE_LENGTH * np.sin(yaw)
-    new_y = positions['particle']['y'] + STRIDE_LENGTH * np.cos(yaw)
-    positions['particle'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
+    # 3. LINEAR KALMAN FILTER (position + velocity tracking)
+    # Calculate naive position as measurement
+    # Standard math: x = cos(angle), y = sin(angle)
+    naive_meas_x = positions['kalman']['x'] + STRIDE_LENGTH * np.cos(yaw)
+    naive_meas_y = positions['kalman']['y'] + STRIDE_LENGTH * np.sin(yaw)
+    kalman_filter.predict()
+    kalman_filter.update([naive_meas_x, naive_meas_y])
+    kalman_pos = kalman_filter.get_position()
+    positions['kalman'] = {'x': round(kalman_pos[0], 3), 'y': round(kalman_pos[1], 3)}
+    trajectories['kalman'].append({
+        'stride': stride_count,
+        'timestamp': datetime.utcnow().isoformat(),
+        'x': positions['kalman']['x'],
+        'y': positions['kalman']['y'],
+        'heading': round(np.degrees(yaw), 2),
+        'algorithm': 'kalman'
+    })
 
+    # 4. PARTICLE FILTER (multiple hypotheses with floor plan)
+    particle_filter.update_stride(STRIDE_LENGTH, yaw)
+    particle_pos = particle_filter.get_position()
+    positions['particle'] = {'x': round(particle_pos[0], 3), 'y': round(particle_pos[1], 3)}
     trajectories['particle'].append({
         'stride': stride_count,
         'timestamp': datetime.utcnow().isoformat(),
@@ -173,15 +277,27 @@ def process_stride_all_algorithms(yaw):
 
     stride_count += 1
 
-    # Visual feedback on SenseHat
-    sense.show_message("!", text_colour=[0, 255, 0], scroll_speed=0.05)
+    # Visual feedback on SenseHat LED
+    # Green flash = stride detected
+    # Arrow shows heading direction
+    sense.set_pixels([
+        [0,255,0]*8,  # Green row = stride detected
+        [0,0,0]*8,
+        [0,0,0]*8,
+        [0,0,0]*8,
+        [0,0,0]*8,
+        [0,0,0]*8,
+        [0,0,0]*8,
+        [0,0,0]*8
+    ])
+    time.sleep(0.1)
     sense.clear()
 
 def auto_walk_monitor():
     """Background thread that monitors for automatic stride detection"""
     global auto_walk_active
 
-    print("🚶 Auto-walk monitor started")
+    logger.info("🚶 Auto-walk monitor started")
 
     while auto_walk_active:
         try:
@@ -199,28 +315,37 @@ def auto_walk_monitor():
                 with auto_walk_lock:
                     process_stride_all_algorithms(filtered_yaw)
 
-                print(f"✓ Stride {stride_count} detected! Position: Bayesian=({positions['bayesian']['x']:.2f}, {positions['bayesian']['y']:.2f})")
+                logger.info(f"✓ Stride {stride_count} detected! Position: Bayesian=({positions['bayesian']['x']:.2f}, {positions['bayesian']['y']:.2f})")
 
             # Sleep to avoid excessive CPU usage
             time.sleep(0.05)  # Check every 50ms
 
         except Exception as e:
-            print(f"Error in auto-walk monitor: {e}")
+            logger.error(f"Error in auto-walk monitor: {e}")
             time.sleep(0.1)
 
-    print("🛑 Auto-walk monitor stopped")
+    logger.info("🛑 Auto-walk monitor stopped")
 
 @app.route('/')
 def index():
-    return render_template('advanced.html')
+    return render_template('tracking.html')
 
 @app.route('/api/sensors/raw')
 def get_raw_sensors():
     """Get RAW sensor readings"""
+    global latest_imu
+
     accel = sense.get_accelerometer_raw()
     gyro = sense.get_gyroscope_raw()
     mag = sense.get_compass_raw()
     orientation = sense.get_orientation_degrees()
+
+    # Update latest IMU readings
+    latest_imu = {
+        'roll': round(orientation.get('roll', 0), 1),
+        'pitch': round(orientation.get('pitch', 0), 1),
+        'yaw': round(orientation.get('yaw', 0), 1)
+    }
 
     timestamp = datetime.utcnow().isoformat()
 
@@ -365,9 +490,11 @@ def get_all_trajectories():
     return jsonify({
         'naive': trajectories['naive'],
         'bayesian': trajectories['bayesian'],
+        'kalman': trajectories['kalman'],
         'particle': trajectories['particle'],
         'ground_truth': trajectories['ground_truth'],
-        'stride_count': stride_count
+        'stride_count': stride_count,
+        'imu': latest_imu
     })
 
 @app.route('/api/ground_truth', methods=['POST'])
@@ -405,20 +532,180 @@ def get_errors():
 
     return jsonify(errors)
 
+@app.route('/api/connection_status')
+def connection_status():
+    """Check if using real hardware or mock"""
+    logger.info("[CONNECTION STATUS] API endpoint called")
+    hardware_type = 'real' if IS_REAL_HARDWARE else 'mock'
+    message = 'Real Raspberry Pi' if IS_REAL_HARDWARE else 'Mock testing mode'
+    logger.info(f"[CONNECTION STATUS] Returning: hardware={hardware_type}, message={message}")
+    return jsonify({
+        'hardware': hardware_type,
+        'message': message
+    })
+
+@app.route('/api/set_start_position', methods=['POST'])
+def set_start_position():
+    """Set custom starting position"""
+    global positions, bayesian_filter, kalman_filter, particle_filter
+
+    logger.info("[SET START POSITION] API endpoint called")
+
+    try:
+        data = request.get_json()
+        logger.info(f"[SET START POSITION] Received data: {data}")
+
+        start_x = float(data.get('x', 2.0))
+        start_y = float(data.get('y', 4.0))
+        logger.info(f"[SET START POSITION] Parsed coordinates: x={start_x}, y={start_y}")
+
+        # Update all algorithm starting positions
+        positions['naive'] = {'x': start_x, 'y': start_y}
+        positions['bayesian'] = {'x': start_x, 'y': start_y}
+        positions['kalman'] = {'x': start_x, 'y': start_y}
+        positions['particle'] = {'x': start_x, 'y': start_y}
+        logger.info(f"[SET START POSITION] Updated positions for all algorithms")
+
+        # Reinitialize filters with new starting position
+        bayesian_filter = BayesianNavigationFilter(floor_plan, stride_length=STRIDE_LENGTH)
+        bayesian_filter.reset(x=start_x, y=start_y)
+        kalman_filter = KalmanFilter(initial_x=start_x, initial_y=start_y, dt=0.5)
+        particle_filter = ParticleFilter(floor_plan, n_particles=200, initial_x=start_x, initial_y=start_y)
+        logger.info(f"[SET START POSITION] Reinitialized all filters")
+
+        logger.info(f"[SET START POSITION] ✓ SUCCESS - Start position set to ({start_x}, {start_y})")
+        return jsonify({
+            'success': True,
+            'start_position': {'x': start_x, 'y': start_y}
+        })
+    except Exception as e:
+        logger.error(f"[SET START POSITION] ✗ ERROR: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/manual_stride', methods=['POST'])
+def manual_stride():
+    """Process a single manual stride with specified heading"""
+    global stride_count
+
+    try:
+        data = request.get_json()
+        heading = float(data.get('heading', 0.0))
+
+        logger.info(f"[MANUAL STRIDE] Processing stride with heading={np.degrees(heading):.1f}°")
+
+        # Process stride for all algorithms
+        process_stride_all_algorithms(heading)
+
+        logger.info(f"[MANUAL STRIDE] ✓ SUCCESS - Stride {stride_count}, Bayesian=({positions['bayesian']['x']:.2f}, {positions['bayesian']['y']:.2f})")
+
+        return jsonify({
+            'success': True,
+            'stride_count': stride_count,
+            'position': positions['bayesian'],
+            'heading_deg': round(np.degrees(heading), 1)
+        })
+    except Exception as e:
+        logger.error(f"[MANUAL STRIDE] ✗ ERROR: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/mock_test', methods=['POST'])
+def mock_test():
+    """Run a mock test - simulate a walk pattern WITH ground truth"""
+    global stride_count, trajectories
+
+    logger.info("[MOCK TEST] API endpoint called")
+
+    try:
+        # Extended mock test: Walk TOWARD the wall to test Bayesian avoidance
+        # Starting at (2.0, 4.0) in Room 1
+        # Wall is at x=5.0 (Room 1 safe zone: x=[1.5, 4.8])
+        # This path walks EAST toward wall - Naive goes through, Bayesian should avoid!
+        test_headings = [
+            # Rectangle 1: Approach the wall (larger loop)
+            0, 0, 0, 0,              # East - 4 strides (2.0→4.8) approaches wall
+
+            np.pi/2, np.pi/2, np.pi/2,  # North - 3 strides
+
+            np.pi, np.pi, np.pi, np.pi,  # West - 4 strides (away from wall)
+
+            -np.pi/2, -np.pi/2, -np.pi/2,  # South - 3 strides
+
+            # Rectangle 2: Repeat to show consistency
+            0, 0, 0,                 # East - 3 strides (toward wall again)
+
+            np.pi/2, np.pi/2,        # North - 2 strides
+
+            np.pi, np.pi, np.pi,     # West - 3 strides
+
+            -np.pi/2, -np.pi/2       # South - 2 strides
+        ]
+
+        logger.info(f"[MOCK TEST] Simulating {len(test_headings)} strides")
+        initial_count = stride_count
+
+        # Compute ideal ground truth path (perfect dead reckoning)
+        # NOTE: In mock test with perfect headings, naive and ground truth are identical
+        # This is CORRECT - ground truth IS what naive does with perfect sensors
+        gt_x, gt_y = positions['naive']['x'], positions['naive']['y']
+        trajectories['ground_truth'].clear()  # Clear previous mock test
+
+        for i, heading in enumerate(test_headings):
+            logger.debug(f"[MOCK TEST] Processing stride {i+1}/{len(test_headings)}, heading={np.degrees(heading):.1f}°")
+
+            # Process stride with filters first
+            process_stride_all_algorithms(heading)
+
+            # Update ground truth AFTER processing (so indices match)
+            gt_x += STRIDE_LENGTH * np.cos(heading)
+            gt_y += STRIDE_LENGTH * np.sin(heading)
+            trajectories['ground_truth'].append({
+                'x': round(gt_x, 3),
+                'y': round(gt_y, 3),
+                'stride': stride_count,
+                'heading': round(np.degrees(heading), 2)
+            })
+
+            time.sleep(0.1)  # Small delay between strides
+
+        total_strides = stride_count - initial_count
+        logger.info(f"[MOCK TEST] ✓ SUCCESS - Generated {total_strides} test strides with ground truth")
+
+        return jsonify({
+            'success': True,
+            'strides': total_strides,
+            'message': f'Generated {total_strides} test strides'
+        })
+    except Exception as e:
+        logger.error(f"[MOCK TEST] ✗ ERROR: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/reset', methods=['POST'])
 def reset():
     """Reset all data"""
-    global stride_count, positions, trajectories, bayesian_filter
+    global stride_count, positions, trajectories, bayesian_filter, kalman_filter, particle_filter
 
     stride_count = 0
+    start_x, start_y = 2.0, 4.0
+
     positions = {
-        'naive': {'x': 0.0, 'y': 0.0},
-        'bayesian': {'x': 0.0, 'y': 0.0},
-        'particle': {'x': 0.0, 'y': 0.0}
+        'naive': {'x': start_x, 'y': start_y},
+        'bayesian': {'x': start_x, 'y': start_y},
+        'kalman': {'x': start_x, 'y': start_y},
+        'particle': {'x': start_x, 'y': start_y}
     }
     trajectories = {
         'naive': [],
         'bayesian': [],
+        'kalman': [],
         'particle': [],
         'ground_truth': []
     }
@@ -426,8 +713,10 @@ def reset():
     sensor_buffer['filtered'].clear()
     sensor_buffer['timestamps'].clear()
 
-    # Reset Bayesian filter to start position
-    bayesian_filter.reset(x=2.0, y=4.0)
+    # Reset all filters to start position
+    bayesian_filter.reset(x=start_x, y=start_y)
+    kalman_filter = KalmanFilter(initial_x=start_x, initial_y=start_y, dt=0.5)
+    particle_filter = ParticleFilter(floor_plan, n_particles=200, initial_x=start_x, initial_y=start_y)
 
     sense.clear()
     return jsonify({'success': True})
@@ -547,28 +836,391 @@ def get_auto_walk_status():
         'last_stride_time': last_stride_time
     })
 
+@app.route('/api/generate_report', methods=['POST'])
+def generate_report():
+    """Generate comprehensive performance report"""
+    try:
+        data = request.get_json()
+        screenshot_data = data.get('screenshot', '')  # Base64 image data
+
+        # Calculate metrics
+        metrics = {}
+        for name in ['naive', 'bayesian', 'kalman', 'particle']:
+            traj = trajectories[name]
+            if len(traj) > 0:
+                # Total distance traveled
+                total_dist = 0
+                for i in range(1, len(traj)):
+                    dx = traj[i]['x'] - traj[i-1]['x']
+                    dy = traj[i]['y'] - traj[i-1]['y']
+                    total_dist += np.sqrt(dx**2 + dy**2)
+
+                # Compare to ground truth if available
+                error_from_gt = 0
+                if len(trajectories['ground_truth']) > 0:
+                    errors = []
+                    for i in range(min(len(traj), len(trajectories['ground_truth']))):
+                        dx = traj[i]['x'] - trajectories['ground_truth'][i]['x']
+                        dy = traj[i]['y'] - trajectories['ground_truth'][i]['y']
+                        errors.append(np.sqrt(dx**2 + dy**2))
+                    error_from_gt = np.mean(errors) if errors else 0
+
+                metrics[name] = {
+                    'total_distance': round(total_dist, 2),
+                    'num_strides': len(traj),
+                    'avg_error_from_gt': round(error_from_gt, 3),
+                    'final_position': {
+                        'x': round(traj[-1]['x'], 2),
+                        'y': round(traj[-1]['y'], 2)
+                    }
+                }
+
+        # Generate HTML report
+        report_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pedestrian Navigation Report</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                   color: white; padding: 30px; border-radius: 10px; margin-bottom: 30px; }}
+        .section {{ background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+        th {{ background-color: #667eea; color: white; }}
+        .metric {{ display: inline-block; margin: 10px 20px; }}
+        .metric-label {{ font-weight: bold; color: #666; }}
+        .metric-value {{ font-size: 24px; color: #667eea; }}
+        img {{ max-width: 100%; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+        .algorithm-naive {{ color: #fc8181; }}
+        .algorithm-bayesian {{ color: #63b3ed; }}
+        .algorithm-kalman {{ color: #68d391; }}
+        .algorithm-particle {{ color: #9f7aea; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Pedestrian Inertial Navigation Report</h1>
+        <p><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p><strong>Test Type:</strong> {'Mock Test Simulation' if len(trajectories['ground_truth']) > 0 else 'Real IMU Data'}</p>
+        <p><strong>Total Strides:</strong> {stride_count}</p>
+    </div>
+
+    <div class="section">
+        <h2>📡 IMU Sensor Readings (Current)</h2>
+        <p><strong>Roll:</strong> {latest_imu['roll']}° (side-to-side tilt, should be ~0° when walking straight)</p>
+        <p><strong>Pitch:</strong> {latest_imu['pitch']}° (forward/backward tilt, should be ~0° when walking straight)</p>
+        <p><strong>Yaw (Heading):</strong> {latest_imu['yaw']}° (compass direction - THIS is used for navigation!)</p>
+        <p><em>Note: Yaw is the critical parameter for pedestrian navigation. Roll and pitch are used to detect tilted sensor mounting.</em></p>
+    </div>
+
+    <div class="section">
+        <h2>📷 Trajectory Visualization</h2>
+        <img src="{screenshot_data}" alt="Trajectory Map"/>
+    </div>
+
+    <div class="section">
+        <h2>📈 Performance Metrics</h2>
+        <table>
+            <tr>
+                <th>Algorithm</th>
+                <th>Total Distance (m)</th>
+                <th>Num Strides</th>
+                <th>Avg Error from GT (m)</th>
+                <th>Final Position (x, y)</th>
+            </tr>
+"""
+
+        for name in ['naive', 'bayesian', 'kalman', 'particle']:
+            if name in metrics:
+                m = metrics[name]
+                report_html += f"""
+            <tr>
+                <td class="algorithm-{name}"><strong>{name.capitalize()}</strong></td>
+                <td>{m['total_distance']} m</td>
+                <td>{m['num_strides']}</td>
+                <td>{m['avg_error_from_gt']} m</td>
+                <td>({m['final_position']['x']}, {m['final_position']['y']})</td>
+            </tr>
+"""
+
+        report_html += """
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>🎯 Algorithm Comparison</h2>
+        <h3>Naive Dead Reckoning (Red)</h3>
+        <p>Simple pedestrian dead reckoning using stride length and IMU heading. Accumulates drift over time.</p>
+
+        <h3>Bayesian Filter with Floor Plan (Blue)</h3>
+        <p>Non-recursive Bayesian filter following Koroglu & Yilmaz (2017) methodology.
+        Uses floor plan constraints to prevent wall crossing. This is the primary requirement of the assignment.</p>
+
+        <h3>Kalman Filter (Green)</h3>
+        <p>Linear Kalman filter with position and velocity state. Smooths trajectory but has no floor plan awareness.</p>
+
+        <h3>Particle Filter (Purple)</h3>
+        <p>Multiple hypothesis tracking with resampling. Uses floor plan to weight particles in walkable areas.</p>
+    </div>
+
+    <div class="section">
+        <h2>⚙️ System Configuration</h2>
+        <p><strong>Floor Plan:</strong> 10m × 10m room with vertical wall at x=5m</p>
+        <p><strong>Stride Length:</strong> 0.7m</p>
+        <p><strong>Bayesian Floor Plan Weight:</strong> 50.0</p>
+        <p><strong>Starting Position:</strong> (2.0m, 4.0m)</p>
+    </div>
+
+    <div class="section">
+        <h2>📝 Conclusion</h2>
+        <p>This report demonstrates the implementation of pedestrian inertial navigation using
+        non-recursive Bayesian filtering with floor plan constraints, as required by the DFA assignment.</p>
+
+        <p><strong>Key Findings:</strong></p>
+        <ul>
+            <li>Bayesian filter successfully incorporates floor plan constraints to avoid walls</li>
+            <li>Multiple algorithms compared for trajectory estimation accuracy</li>
+            <li>Real-time dashboard enables live visualization and testing</li>
+        </ul>
+    </div>
+
+    <script>
+        // Print dialog on load
+        window.onload = function() {{
+            setTimeout(function() {{ window.print(); }}, 500);
+        }};
+    </script>
+</body>
+</html>
+"""
+
+        # Save report
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        report_filename = f'navigation_report_{timestamp}.html'
+        report_path = f'/tmp/{report_filename}'
+
+        with open(report_path, 'w') as f:
+            f.write(report_html)
+
+        logger.info(f"[REPORT] Generated report: {report_filename}")
+
+        return jsonify({
+            'success': True,
+            'report_path': report_path,
+            'filename': report_filename,
+            'metrics': metrics
+        })
+
+    except Exception as e:
+        logger.error(f"[REPORT] Error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/download_report/<filename>')
+def download_report(filename):
+    """Download generated report"""
+    try:
+        report_path = f'/tmp/{filename}'
+        return send_file(report_path, as_attachment=True, download_name=filename)
+    except Exception as e:
+        logger.error(f"[REPORT DOWNLOAD] Error: {str(e)}")
+        return jsonify({'error': str(e)}), 404
+
+# =======================
+# MQTT CONTROL ROUTES
+# =======================
+
+@app.route('/api/mqtt/status')
+def mqtt_status():
+    """Get status of all MQTT programs"""
+    global mqtt_stats, mqtt_processes
+
+    # Check broker
+    mqtt_stats['broker_running'] = check_mqtt_broker()
+    mqtt_stats['last_check'] = time.time()
+
+    # Check which processes are still running
+    for key, proc in mqtt_processes.items():
+        status_key = f'{key}_active'
+        if proc and proc.poll() is None:  # Still running
+            mqtt_stats[status_key] = True
+        else:
+            mqtt_stats[status_key] = False
+            if proc:
+                mqtt_processes[key] = None
+
+    return jsonify(mqtt_stats)
+
+@app.route('/api/mqtt/start/<program>', methods=['POST'])
+def mqtt_start(program):
+    """Start an MQTT program"""
+    global mqtt_processes
+
+    # Check if broker is running
+    if not check_mqtt_broker():
+        return jsonify({
+            'success': False,
+            'message': 'MQTT broker not running. Start mosquitto first: sudo systemctl start mosquitto'
+        })
+
+    # Get MQTT directory
+    mqtt_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'mqtt')
+
+    try:
+        if program == 'cpu_publisher':
+            if mqtt_processes['cpu_publisher'] and mqtt_processes['cpu_publisher'].poll() is None:
+                return jsonify({'success': False, 'message': 'CPU publisher already running'})
+
+            proc = subprocess.Popen(
+                ['python3', os.path.join(mqtt_dir, 'mqtt_cpu_publisher.py'), '--broker', 'localhost'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            mqtt_processes['cpu_publisher'] = proc
+            return jsonify({'success': True, 'message': 'CPU publisher started'})
+
+        elif program == 'location_publisher':
+            if mqtt_processes['location_publisher'] and mqtt_processes['location_publisher'].poll() is None:
+                return jsonify({'success': False, 'message': 'Location publisher already running'})
+
+            proc = subprocess.Popen(
+                ['python3', os.path.join(mqtt_dir, 'mqtt_location_publisher.py'), '--broker', 'localhost'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            mqtt_processes['location_publisher'] = proc
+            return jsonify({'success': True, 'message': 'Location publisher started'})
+
+        elif program == 'windowed_1s':
+            if mqtt_processes['windowed_1s'] and mqtt_processes['windowed_1s'].poll() is None:
+                return jsonify({'success': False, 'message': 'Windowed subscriber (1s) already running'})
+
+            proc = subprocess.Popen(
+                ['python3', os.path.join(mqtt_dir, 'mqtt_subscriber_windowed.py'), '--broker', 'localhost', '--window', '1.0'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            mqtt_processes['windowed_1s'] = proc
+            return jsonify({'success': True, 'message': 'Windowed subscriber (1s) started'})
+
+        elif program == 'windowed_5s':
+            if mqtt_processes['windowed_5s'] and mqtt_processes['windowed_5s'].poll() is None:
+                return jsonify({'success': False, 'message': 'Windowed subscriber (5s) already running'})
+
+            proc = subprocess.Popen(
+                ['python3', os.path.join(mqtt_dir, 'mqtt_subscriber_windowed.py'), '--broker', 'localhost', '--window', '5.0'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            mqtt_processes['windowed_5s'] = proc
+            return jsonify({'success': True, 'message': 'Windowed subscriber (5s) started'})
+
+        elif program == 'bernoulli':
+            if mqtt_processes['bernoulli'] and mqtt_processes['bernoulli'].poll() is None:
+                return jsonify({'success': False, 'message': 'Bernoulli subscriber already running'})
+
+            proc = subprocess.Popen(
+                ['python3', os.path.join(mqtt_dir, 'mqtt_subscriber_bernoulli.py'), '--broker', 'localhost'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            mqtt_processes['bernoulli'] = proc
+            return jsonify({'success': True, 'message': 'Bernoulli subscriber started'})
+
+        elif program == 'malfunction':
+            if mqtt_processes['malfunction'] and mqtt_processes['malfunction'].poll() is None:
+                return jsonify({'success': False, 'message': 'Malfunction detector already running'})
+
+            proc = subprocess.Popen(
+                ['python3', os.path.join(mqtt_dir, 'malfunction_detection.py'), '--broker', 'localhost'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            mqtt_processes['malfunction'] = proc
+            return jsonify({'success': True, 'message': 'Malfunction detector started'})
+
+        else:
+            return jsonify({'success': False, 'message': f'Unknown program: {program}'})
+
+    except Exception as e:
+        logger.error(f"Error starting {program}: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/mqtt/stop/<program>', methods=['POST'])
+def mqtt_stop(program):
+    """Stop an MQTT program"""
+    global mqtt_processes
+
+    try:
+        if program in mqtt_processes and mqtt_processes[program]:
+            if mqtt_processes[program].poll() is None:  # Still running
+                mqtt_processes[program].terminate()
+                mqtt_processes[program].wait(timeout=5)
+                mqtt_processes[program] = None
+                return jsonify({'success': True, 'message': f'{program} stopped'})
+            else:
+                mqtt_processes[program] = None
+                return jsonify({'success': False, 'message': f'{program} not running'})
+        else:
+            return jsonify({'success': False, 'message': f'{program} not found'})
+    except Exception as e:
+        logger.error(f"Error stopping {program}: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/mqtt/stop_all', methods=['POST'])
+def mqtt_stop_all():
+    """Stop all MQTT programs"""
+    global mqtt_processes
+
+    stopped = []
+    for key, proc in mqtt_processes.items():
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+                stopped.append(key)
+            except:
+                pass
+            mqtt_processes[key] = None
+
+    return jsonify({
+        'success': True,
+        'message': f'Stopped {len(stopped)} programs',
+        'stopped': stopped
+    })
+
 if __name__ == '__main__':
-    print("=" * 70)
-    print("🚀 ADVANCED Dashboard with Auto-Stride Detection")
-    print("=" * 70)
-    print(f"\n📱 Access: http://10.111.224.71:5001")
-    print(f"\n✨ Features:")
-    print(f"   - 🚶 AUTO-WALK MODE: Real-time stride detection while walking!")
-    print(f"   - Raw vs Filtered sensor comparison")
-    print(f"   - Multiple algorithm trajectories:")
-    print(f"     • Naive Dead Reckoning")
-    print(f"     • ✓ Bayesian Filter (Equation 5 - Koroglu & Yilmaz 2017)")
-    print(f"     • Particle Filter (TODO)")
-    print(f"   - Real-time error metrics")
-    print(f"   - Parameter tuning")
-    print(f"   - Ground truth comparison")
-    print(f"   - Floor plan constraints (20m × 10m L-shaped hallway)")
-    print(f"\n🎒 Usage:")
-    print(f"   1. Put Raspberry Pi in backpack")
-    print(f"   2. Access dashboard from laptop browser")
-    print(f"   3. Click 'Start Walking' button")
-    print(f"   4. Walk naturally - strides detected automatically!")
-    print(f"   5. Watch real-time trajectory on dashboard")
-    print("\n" + "=" * 70)
+    logger.info("=" * 70)
+    logger.info("🚀 ADVANCED Dashboard with Auto-Stride Detection")
+    logger.info("=" * 70)
+    logger.info(f"\n📱 Access: http://10.49.216.71:5001")
+    logger.info(f"\n✨ Features:")
+    logger.info(f"   - 🚶 AUTOMATIC TRACKING: Always monitoring for strides!")
+    logger.info(f"   - Raw vs Filtered sensor comparison")
+    logger.info(f"   - Multiple algorithm trajectories:")
+    logger.info(f"     • Naive Dead Reckoning")
+    logger.info(f"     • ✓ Bayesian Filter (with floor plan constraints)")
+    logger.info(f"     • ✓ Linear Kalman Filter (position + velocity)")
+    logger.info(f"     • ✓ Particle Filter (multiple hypotheses)")
+    logger.info(f"   - Real-time error metrics")
+    logger.info(f"   - Parameter tuning")
+    logger.info(f"   - Ground truth comparison")
+    logger.info(f"   - Floor plan constraints (10m × 10m square room with middle wall)")
+    logger.info(f"\n🎒 Usage:")
+    logger.info(f"   1. Put Raspberry Pi in backpack")
+    logger.info(f"   2. Access dashboard from laptop browser")
+    logger.info(f"   3. Click 'START WALKING' button")
+    logger.info(f"   4. Walk naturally - strides detected automatically")
+    logger.info(f"   5. Click 'STOP WALKING' when done")
+    logger.info(f"   6. View trajectories on the map!")
+    logger.info("\n" + "=" * 70)
+
+    # Don't auto-start - wait for user to click START button
+    logger.info("\n⏸️  Stride detection ready - click START WALKING in dashboard")
+    logger.info("=" * 70 + "\n")
 
     app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)

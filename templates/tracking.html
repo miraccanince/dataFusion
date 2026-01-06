@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Indoor Navigation</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #fff;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .status-card {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+
+        .status-title {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .stride-count {
+            font-size: 48px;
+            font-weight: bold;
+            color: #f0fff4;
+        }
+
+        .instruction {
+            margin-top: 15px;
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+        }
+
+        .chart-container h2 {
+            color: #2d3748;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #4299e1;
+            padding-bottom: 10px;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 600px;
+            width: 100%;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .metric-label {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .metric-value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+            color: #2d3748;
+        }
+
+        .legend-color {
+            width: 30px;
+            height: 4px;
+            border-radius: 2px;
+        }
+
+        .btn-reset {
+            background: #f56565;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+        }
+
+        .btn-reset:hover {
+            background: #c53030;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Real-Time Indoor Navigation</h1>
+
+        <!-- Status Card -->
+        <div class="status-card" id="statusCard">
+            <div class="status-title" id="statusTitle">READY TO TRACK</div>
+
+            <!-- Compact Info Grid -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px auto; max-width: 500px;">
+                <!-- Connection & Strides -->
+                <div style="padding: 8px; background: rgba(255,255,255,0.2); border-radius: 6px;">
+                    <div style="font-size: 11px; opacity: 0.8;">Connection</div>
+                    <div id="connectionStatus" style="font-size: 14px; font-weight: bold;">Checking...</div>
+                </div>
+                <div style="padding: 8px; background: rgba(255,255,255,0.2); border-radius: 6px;">
+                    <div style="font-size: 11px; opacity: 0.8;">Strides</div>
+                    <div id="strideCount" style="font-size: 14px; font-weight: bold;">0</div>
+                </div>
+
+                <!-- IMU Readings -->
+                <div style="padding: 8px; background: rgba(255,255,255,0.2); border-radius: 6px;">
+                    <div style="font-size: 11px; opacity: 0.8;">Roll</div>
+                    <div id="imuRoll" style="font-size: 14px; font-weight: bold;">0.0°</div>
+                </div>
+                <div style="padding: 8px; background: rgba(255,255,255,0.2); border-radius: 6px;">
+                    <div style="font-size: 11px; opacity: 0.8;">Pitch</div>
+                    <div id="imuPitch" style="font-size: 14px; font-weight: bold;">0.0°</div>
+                </div>
+                <div style="padding: 8px; background: rgba(255,255,255,0.2); border-radius: 6px; grid-column: 1 / -1;">
+                    <div style="font-size: 11px; opacity: 0.8;">Yaw (Heading)</div>
+                    <div id="imuYaw" style="font-size: 14px; font-weight: bold;">0.0°</div>
+                </div>
+            </div>
+
+            <!-- Starting Position Input -->
+            <div style="margin: 10px auto; max-width: 500px; background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px;">
+                <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px;">Starting Position:</div>
+                <div style="display: flex; gap: 10px; align-items: end;">
+                    <div style="flex: 1;">
+                        <label style="display: block; font-size: 11px; margin-bottom: 3px; opacity: 0.9;">X (m):</label>
+                        <input type="number" id="startX" value="2.0" min="0" max="10" step="0.1"
+                               style="width: 100%; padding: 6px; border: none; border-radius: 4px; font-size: 14px;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="display: block; font-size: 11px; margin-bottom: 3px; opacity: 0.9;">Y (m):</label>
+                        <input type="number" id="startY" value="4.0" min="0" max="10" step="0.1"
+                               style="width: 100%; padding: 6px; border: none; border-radius: 4px; font-size: 14px;">
+                    </div>
+                    <button onclick="updateStartPosition()"
+                            style="padding: 6px 15px; background: #4299e1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px;">
+                        Update
+                    </button>
+                </div>
+            </div>
+
+            <!-- Start/Stop Buttons -->
+            <div style="display: flex; gap: 10px; margin: 10px auto; max-width: 500px;">
+                <button id="startBtn" onclick="startTracking()" style="flex: 1; padding: 12px; font-size: 16px; background: #48bb78; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                    START WALKING
+                </button>
+                <button id="stopBtn" onclick="stopTracking()" disabled style="flex: 1; padding: 12px; font-size: 16px; background: #cbd5e0; color: white; border: none; border-radius: 8px; cursor: not-allowed; font-weight: bold;">
+                    STOP WALKING
+                </button>
+            </div>
+
+            <!-- Mock Test and Screenshot Buttons -->
+            <div style="display: flex; gap: 8px; justify-content: center; margin: 10px 0;">
+                <button onclick="runMockTest()"
+                        style="padding: 10px 25px; background: #9f7aea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">
+                    Mock Test
+                </button>
+                <button onclick="takeScreenshot()"
+                        style="padding: 10px 25px; background: #4299e1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">
+                    Screenshot
+                </button>
+                <button onclick="generateReport()"
+                        style="padding: 10px 25px; background: #48bb78; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">
+                    Report
+                </button>
+            </div>
+
+            <div class="instruction" style="font-size: 12px; padding: 8px;">
+                <strong>Instructions:</strong> Set position → START WALKING → walk naturally → STOP WALKING<br>
+                <em style="font-size: 11px;">Use Manual Controls or Mock Test for testing without hardware</em>
+            </div>
+        </div>
+
+        <!-- Trajectory Chart with Manual Controls -->
+        <div class="chart-container">
+            <h2>Floor Plan & Trajectory Comparison</h2>
+
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #fc8181;"></div>
+                    <span>Raw IMU (Naive)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #63b3ed;"></div>
+                    <span>Bayesian Filter</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #68d391;"></div>
+                    <span>Kalman Filter</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #9f7aea;"></div>
+                    <span>Particle Filter</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f59e0b; border: 2px dashed #f59e0b;"></div>
+                    <span>Ground Truth (Mock Test)</span>
+                </div>
+            </div>
+
+            <!-- Side by side: Chart on left, Manual controls on right -->
+            <div style="display: flex; gap: 20px; align-items: flex-start;">
+                <!-- Chart -->
+                <div style="flex: 1;">
+                    <div class="chart-wrapper">
+                        <canvas id="trajectoryChart"></canvas>
+                    </div>
+                    <div style="text-align: center; margin-top: 10px;">
+                        <button class="btn-reset" onclick="resetTracking()">Reset Tracking</button>
+                    </div>
+                </div>
+
+                <!-- Manual Walk Controls -->
+                <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; max-width: 200px;">
+                    <div style="font-size: 13px; font-weight: bold; margin-bottom: 10px; text-align: center;">Manual Walk</div>
+
+                    <!-- Current Heading Display -->
+                    <div style="background: rgba(0,0,0,0.2); padding: 6px; border-radius: 4px; margin-bottom: 10px; text-align: center;">
+                        <div style="font-size: 10px; opacity: 0.8; margin-bottom: 2px;">Heading:</div>
+                        <div id="headingDisplay" style="font-size: 12px; font-weight: bold; color: #63b3ed;">
+                            0° (East)
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
+                        <div></div>
+                        <button onclick="manualStride(Math.PI/2)"
+                                style="padding: 8px; background: #4299e1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">
+                            N
+                        </button>
+                        <div></div>
+
+                        <button onclick="manualStride(Math.PI)"
+                                style="padding: 8px; background: #4299e1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">
+                            W
+                        </button>
+                        <div style="display: flex; align-items: center; justify-content: center; font-size: 9px; text-align: center; opacity: 0.6;">
+                            0.7m
+                        </div>
+                        <button onclick="manualStride(0)"
+                                style="padding: 8px; background: #4299e1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">
+                            E
+                        </button>
+
+                        <div></div>
+                        <button onclick="manualStride(-Math.PI/2)"
+                                style="padding: 8px; background: #4299e1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px;">
+                            S
+                        </button>
+                        <div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Metrics -->
+        <div class="chart-container">
+            <h2>Current Positions</h2>
+            <div class="metrics-grid">
+                <div class="metric-card" style="background: linear-gradient(135deg, #fc8181 0%, #f56565 100%);">
+                    <div class="metric-label">Naive (Raw IMU)</div>
+                    <div class="metric-value" id="naivePos">0.0, 0.0</div>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #63b3ed 0%, #4299e1 100%);">
+                    <div class="metric-label">Bayesian Filter</div>
+                    <div class="metric-value" id="bayesianPos">0.0, 0.0</div>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #68d391 0%, #48bb78 100%);">
+                    <div class="metric-label">Kalman Filter</div>
+                    <div class="metric-value" id="kalmanPos">0.0, 0.0</div>
+                </div>
+                <div class="metric-card" style="background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);">
+                    <div class="metric-label">Particle Filter</div>
+                    <div class="metric-value" id="particlePos">0.0, 0.0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let trajectoryChart;
+        let floorPlanData = null;
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeChart();
+            loadFloorPlan();
+            checkConnection();
+            startDataUpdates();
+        });
+
+        function loadFloorPlan() {
+            fetch('/api/floor_plan')
+                .then(response => response.json())
+                .then(data => {
+                    floorPlanData = data;
+                    updateFloorPlanOverlay();
+                })
+                .catch(err => console.error('Error loading floor plan:', err));
+        }
+
+        function updateFloorPlanOverlay() {
+            if (!floorPlanData || !trajectoryChart) return;
+            trajectoryChart.update();
+        }
+
+        // Custom plugin to draw floor plan background
+        const floorPlanPlugin = {
+            id: 'floorPlanBackground',
+            beforeDatasetsDraw: (chart, args, options) => {
+                const {ctx, chartArea: {left, top, right, bottom}, scales: {x, y}} = chart;
+
+                ctx.save();
+
+                // Draw room boundaries (outer walls)
+                ctx.strokeStyle = '#2d3748';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(
+                    x.getPixelForValue(0),
+                    y.getPixelForValue(10),
+                    x.getPixelForValue(10) - x.getPixelForValue(0),
+                    y.getPixelForValue(0) - y.getPixelForValue(10)
+                );
+
+                // Draw middle wall (vertical divider)
+                ctx.strokeStyle = '#1a202c';
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                const wallX = x.getPixelForValue(5);
+                ctx.moveTo(wallX, y.getPixelForValue(9));
+                ctx.lineTo(wallX, y.getPixelForValue(1));
+                ctx.stroke();
+
+                // Fill room backgrounds with subtle colors
+                ctx.fillStyle = 'rgba(200, 230, 255, 0.1)';
+                ctx.fillRect(
+                    x.getPixelForValue(1),
+                    y.getPixelForValue(9),
+                    x.getPixelForValue(4.8) - x.getPixelForValue(1),
+                    y.getPixelForValue(1) - y.getPixelForValue(9)
+                );
+
+                ctx.fillStyle = 'rgba(255, 230, 200, 0.1)';
+                ctx.fillRect(
+                    x.getPixelForValue(5.2),
+                    y.getPixelForValue(9),
+                    x.getPixelForValue(9) - x.getPixelForValue(5.2),
+                    y.getPixelForValue(1) - y.getPixelForValue(9)
+                );
+
+                // Add room labels
+                ctx.fillStyle = '#4a5568';
+                ctx.font = 'bold 16px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('Room 1', x.getPixelForValue(3), y.getPixelForValue(8.5));
+                ctx.fillText('Room 2', x.getPixelForValue(7), y.getPixelForValue(8.5));
+
+                // Draw starting position marker (use custom position from inputs)
+                const customStartX = parseFloat(document.getElementById('startX').value) || 2.0;
+                const customStartY = parseFloat(document.getElementById('startY').value) || 4.0;
+
+                ctx.fillStyle = '#48bb78';
+                ctx.strokeStyle = '#2f855a';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                const startX = x.getPixelForValue(customStartX);
+                const startY = y.getPixelForValue(customStartY);
+                ctx.arc(startX, startY, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Add "START" label
+                ctx.fillStyle = '#2f855a';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText('START', startX, startY - 15);
+
+                ctx.restore();
+            }
+        };
+
+        // Track current heading for display
+        let currentHeading = 0;
+
+        function initializeChart() {
+            const ctx = document.getElementById('trajectoryChart').getContext('2d');
+
+            // Register plugins
+            Chart.register(floorPlanPlugin);
+
+            trajectoryChart = new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Naive',
+                            data: [],
+                            borderColor: '#fc8181',
+                            backgroundColor: '#fc8181',
+                            showLine: true,
+                            fill: false,
+                            pointRadius: 5,
+                            borderWidth: 3
+                        },
+                        {
+                            label: 'Bayesian',
+                            data: [],
+                            borderColor: '#63b3ed',
+                            backgroundColor: '#63b3ed',
+                            showLine: true,
+                            fill: false,
+                            pointRadius: 5,
+                            borderWidth: 3
+                        },
+                        {
+                            label: 'Kalman',
+                            data: [],
+                            borderColor: '#68d391',
+                            backgroundColor: '#68d391',
+                            showLine: true,
+                            fill: false,
+                            pointRadius: 5,
+                            borderWidth: 3
+                        },
+                        {
+                            label: 'Particle',
+                            data: [],
+                            borderColor: '#9f7aea',
+                            backgroundColor: '#9f7aea',
+                            showLine: true,
+                            fill: false,
+                            pointRadius: 5,
+                            borderWidth: 3
+                        },
+                        {
+                            label: 'Ground Truth (Mock Test)',
+                            data: [],
+                            borderColor: '#f59e0b',
+                            backgroundColor: '#f59e0b',
+                            showLine: true,
+                            fill: false,
+                            pointRadius: 4,
+                            borderWidth: 2,
+                            borderDash: [5, 5],  // Dashed line
+                            hidden: true  // Hide by default
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 1,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            title: {
+                                display: true,
+                                text: 'X Position (meters)',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            min: 0,
+                            max: 10,
+                            ticks: { stepSize: 1 },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.15)',
+                                lineWidth: 1
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Y Position (meters)',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            min: 0,
+                            max: 10,
+                            ticks: { stepSize: 1 },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.15)',
+                                lineWidth: 1
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: { size: 14, weight: 'bold' },
+                                padding: 15,
+                                usePointStyle: true,
+                                pointStyle: 'circle'
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: (${context.parsed.x.toFixed(2)}, ${context.parsed.y.toFixed(2)})`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function startDataUpdates() {
+            setInterval(updateData, 500);  // Update every 500ms
+        }
+
+        function updateData() {
+            fetch('/api/trajectories')
+                .then(response => response.json())
+                .then(data => {
+                    // Update stride count
+                    document.getElementById('strideCount').textContent = data.stride_count || 0;
+
+                    // Update IMU readings
+                    if (data.imu) {
+                        document.getElementById('imuRoll').textContent = `${data.imu.roll.toFixed(1)}°`;
+                        document.getElementById('imuPitch').textContent = `${data.imu.pitch.toFixed(1)}°`;
+                        document.getElementById('imuYaw').textContent = `${data.imu.yaw.toFixed(1)}°`;
+                    }
+
+                    // Update trajectories
+                    trajectoryChart.data.datasets[0].data = data.naive.map(p => ({x: p.x, y: p.y}));
+                    trajectoryChart.data.datasets[1].data = data.bayesian.map(p => ({x: p.x, y: p.y}));
+                    trajectoryChart.data.datasets[2].data = data.kalman.map(p => ({x: p.x, y: p.y}));
+                    trajectoryChart.data.datasets[3].data = data.particle.map(p => ({x: p.x, y: p.y}));
+
+                    // Update ground truth (only visible if mock test was run)
+                    if (data.ground_truth && data.ground_truth.length > 0) {
+                        trajectoryChart.data.datasets[4].data = data.ground_truth.map(p => ({x: p.x, y: p.y}));
+                        trajectoryChart.show(4);  // Explicitly show dataset 4
+                        console.log('[GROUND TRUTH] Showing orange line:', data.ground_truth.length, 'points');
+                    } else {
+                        trajectoryChart.data.datasets[4].data = [];
+                        trajectoryChart.hide(4);  // Explicitly hide dataset 4
+                    }
+
+                    trajectoryChart.update('none');  // Update without animation for smooth real-time
+
+                    // Update current positions
+                    if (data.naive.length > 0) {
+                        const latest = {
+                            naive: data.naive[data.naive.length - 1],
+                            bayesian: data.bayesian[data.bayesian.length - 1],
+                            kalman: data.kalman[data.kalman.length - 1],
+                            particle: data.particle[data.particle.length - 1]
+                        };
+                        document.getElementById('naivePos').textContent =
+                            `${latest.naive.x.toFixed(2)}, ${latest.naive.y.toFixed(2)}`;
+                        document.getElementById('bayesianPos').textContent =
+                            `${latest.bayesian.x.toFixed(2)}, ${latest.bayesian.y.toFixed(2)}`;
+                        document.getElementById('kalmanPos').textContent =
+                            `${latest.kalman.x.toFixed(2)}, ${latest.kalman.y.toFixed(2)}`;
+                        document.getElementById('particlePos').textContent =
+                            `${latest.particle.x.toFixed(2)}, ${latest.particle.y.toFixed(2)}`;
+                    }
+                })
+                .catch(err => console.error('Error fetching data:', err));
+        }
+
+        function startTracking() {
+            fetch('/api/auto_walk/start', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Update UI
+                        document.getElementById('statusTitle').textContent = '✓ TRACKING ACTIVE';
+                        document.getElementById('statusCard').style.background = 'linear-gradient(135deg, #48bb78 0%, #38a169 100%)';
+                        document.getElementById('startBtn').disabled = true;
+                        document.getElementById('startBtn').style.background = '#cbd5e0';
+                        document.getElementById('startBtn').style.cursor = 'not-allowed';
+                        document.getElementById('stopBtn').disabled = false;
+                        document.getElementById('stopBtn').style.background = '#f56565';
+                        document.getElementById('stopBtn').style.cursor = 'pointer';
+                    }
+                })
+                .catch(err => console.error('Error starting tracking:', err));
+        }
+
+        function stopTracking() {
+            fetch('/api/auto_walk/stop', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Update UI
+                        document.getElementById('statusTitle').textContent = '⏸️ TRACKING STOPPED';
+                        document.getElementById('statusCard').style.background = 'linear-gradient(135deg, #ed8936 0%, #dd6b20 100%)';
+                        document.getElementById('startBtn').disabled = false;
+                        document.getElementById('startBtn').style.background = '#48bb78';
+                        document.getElementById('startBtn').style.cursor = 'pointer';
+                        document.getElementById('stopBtn').disabled = true;
+                        document.getElementById('stopBtn').style.background = '#cbd5e0';
+                        document.getElementById('stopBtn').style.cursor = 'not-allowed';
+                    }
+                })
+                .catch(err => console.error('Error stopping tracking:', err));
+        }
+
+        function checkConnection() {
+            console.log('[CONNECTION] Checking hardware connection...');
+
+            fetch('/api/connection_status')
+                .then(response => {
+                    console.log('[CONNECTION] Response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('[CONNECTION] Response data:', data);
+                    const statusEl = document.getElementById('connectionStatus');
+                    if (data.hardware === 'real') {
+                        statusEl.textContent = '✓ Real Raspberry Pi Connected';
+                        statusEl.style.color = '#48bb78';
+                    } else {
+                        statusEl.textContent = '⚠️ Mock Mode (Testing)';
+                        statusEl.style.color = '#ed8936';
+                    }
+                })
+                .catch(err => {
+                    console.error('[CONNECTION] Error:', err);
+                    document.getElementById('connectionStatus').textContent = '✗ Connection Error';
+                });
+        }
+
+        function updateStartPosition() {
+            const x = parseFloat(document.getElementById('startX').value);
+            const y = parseFloat(document.getElementById('startY').value);
+
+            console.log(`[UPDATE START] Attempting to set position to (${x}, ${y})`);
+
+            if (x < 0 || x > 10 || y < 0 || y > 10) {
+                alert('Position must be between 0 and 10 meters!');
+                console.error('[UPDATE START] Invalid coordinates');
+                return;
+            }
+
+            fetch('/api/set_start_position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ x: x, y: y })
+            })
+            .then(response => {
+                console.log('[UPDATE START] Response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('[UPDATE START] Response data:', data);
+                if (data.success) {
+                    alert(`✓ Starting position updated to (${x}, ${y})`);
+                    trajectoryChart.update();
+                } else {
+                    console.error('[UPDATE START] Failed:', data);
+                    alert('Failed to update position: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                console.error('[UPDATE START] Error:', err);
+                alert('Error updating position: ' + err.message);
+            });
+        }
+
+        function manualStride(heading) {
+            console.log(`[MANUAL STRIDE] Taking stride with heading: ${heading} rad (${(heading * 180 / Math.PI).toFixed(0)}°)`);
+
+            // Update current heading for arrow display
+            currentHeading = heading;
+
+            fetch('/api/manual_stride', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ heading: heading })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('[MANUAL STRIDE] Response:', data);
+                if (data.success) {
+                    console.log(`✓ Stride ${data.stride_count}: position=(${data.position.x.toFixed(2)}, ${data.position.y.toFixed(2)})`);
+
+                    // Update heading display
+                    const headingDeg = Math.round(heading * 180 / Math.PI);
+                    const directionName = getDirectionName(heading);
+                    document.getElementById('headingDisplay').textContent =
+                        `${headingDeg}° (${directionName})`;
+                } else {
+                    console.error('[MANUAL STRIDE] Failed:', data);
+                    alert('Failed to take stride: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                console.error('[MANUAL STRIDE] Error:', err);
+                alert('Error taking stride: ' + err.message);
+            });
+        }
+
+        function getDirectionName(heading) {
+            const deg = heading * 180 / Math.PI;
+            const normalized = ((deg % 360) + 360) % 360;
+
+            if (normalized >= 315 || normalized < 45) return 'East';
+            if (normalized >= 45 && normalized < 135) return 'North';
+            if (normalized >= 135 && normalized < 225) return 'West';
+            return 'South';
+        }
+
+        function runMockTest() {
+            console.log('[MOCK TEST] Starting mock test...');
+
+            if (confirm('Run a simulated walk pattern? This will generate test data.')) {
+                console.log('[MOCK TEST] User confirmed, sending request...');
+
+                fetch('/api/mock_test', { method: 'POST' })
+                    .then(response => {
+                        console.log('[MOCK TEST] Response status:', response.status);
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('[MOCK TEST] Response data:', data);
+                        if (data.success) {
+                            alert(`✓ Mock test complete! Generated ${data.strides} strides.`);
+                        } else {
+                            console.error('[MOCK TEST] Failed:', data);
+                            alert('Mock test failed: ' + (data.error || 'Unknown error'));
+                        }
+                    })
+                    .catch(err => {
+                        console.error('[MOCK TEST] Error:', err);
+                        alert('Error running mock test: ' + err.message);
+                    });
+            } else {
+                console.log('[MOCK TEST] User cancelled');
+            }
+        }
+
+        function takeScreenshot() {
+            console.log('[SCREENSHOT] Taking screenshot of trajectory map...');
+
+            try {
+                // Get the chart canvas
+                const canvas = document.getElementById('trajectoryChart');
+
+                if (!canvas) {
+                    console.error('[SCREENSHOT] Chart canvas not found');
+                    alert('Error: Chart not found');
+                    return;
+                }
+
+                // Convert canvas to blob and download
+                canvas.toBlob(function(blob) {
+                    // Create download link
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                    link.download = `trajectory_map_${timestamp}.png`;
+                    link.href = url;
+                    link.click();
+
+                    // Clean up
+                    URL.revokeObjectURL(url);
+                    console.log('[SCREENSHOT] ✓ Screenshot saved successfully');
+                }, 'image/png');
+
+            } catch (err) {
+                console.error('[SCREENSHOT] Error:', err);
+                alert('Error taking screenshot: ' + err.message);
+            }
+        }
+
+        function generateReport() {
+            console.log('[REPORT] Generating performance report...');
+
+            try {
+                // Get the chart canvas
+                const canvas = document.getElementById('trajectoryChart');
+
+                if (!canvas) {
+                    console.error('[REPORT] Chart canvas not found');
+                    alert('Error: Chart not found');
+                    return;
+                }
+
+                // Convert canvas to base64 image data
+                const screenshotData = canvas.toDataURL('image/png');
+                console.log('[REPORT] Screenshot captured for report');
+
+                // Send to backend to generate report
+                fetch('/api/generate_report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ screenshot: screenshotData })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('[REPORT] Response:', data);
+
+                    if (data.success) {
+                        console.log('[REPORT] ✓ Report generated:', data.filename);
+
+                        // Open report in new window
+                        const reportUrl = `/api/download_report/${data.filename}`;
+                        window.open(reportUrl, '_blank');
+
+                        alert(`✓ Report generated successfully!\n\nMetrics:\n` +
+                              `- Naive: ${data.metrics.naive?.total_distance || 0}m traveled\n` +
+                              `- Bayesian: ${data.metrics.bayesian?.total_distance || 0}m traveled\n` +
+                              `- Kalman: ${data.metrics.kalman?.total_distance || 0}m traveled\n` +
+                              `- Particle: ${data.metrics.particle?.total_distance || 0}m traveled`);
+                    } else {
+                        console.error('[REPORT] Failed:', data.error);
+                        alert('Failed to generate report: ' + data.error);
+                    }
+                })
+                .catch(err => {
+                    console.error('[REPORT] Error:', err);
+                    alert('Error generating report: ' + err.message);
+                });
+
+            } catch (err) {
+                console.error('[REPORT] Error:', err);
+                alert('Error generating report: ' + err.message);
+            }
+        }
+
+        function resetTracking() {
+            if (confirm('Reset all tracking data?')) {
+                fetch('/api/reset', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            location.reload();
+                        }
+                    });
+            }
+        }
+    </script>
+</body>
+</html>

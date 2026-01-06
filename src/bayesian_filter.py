@@ -51,40 +51,44 @@ class FloorPlanPDF:
         # Create simple L-shaped hallway floor plan
         self.grid = self._create_simple_floor_plan()
 
-        # Normalize to make it a proper PDF
-        self.grid = self.grid / np.sum(self.grid)
+        # DON'T normalize by sum (makes values too small)
+        # Grid values are already in range [0.01, 1.0] from _create_simple_floor_plan
 
     def _create_simple_floor_plan(self):
         """
-        Create a simple L-shaped hallway for testing
+        Create a square room with a wall in the middle
 
-        Layout:
+        Layout (10m x 10m):
         ######################
-        ##                  ##
-        ##   HALLWAY 1      ##
-        ##                  ##
-        ##########          ##
-               ##          ##
-               ## HALLWAY 2##
-               ##          ##
-               ##############
+        ##        |         ##
+        ##  Room  |  Room   ##
+        ##    1   |    2    ##
+        ##        |         ##
+        ######################
         """
         grid = np.zeros((self.grid_height, self.grid_width))
 
-        # Hallway 1 (horizontal): 2m wide
-        hallway_width_cells = int(2.0 / self.resolution)
-        y_start = int(3.0 / self.resolution)
-        y_end = y_start + hallway_width_cells
-        x_start = int(1.0 / self.resolution)
-        x_end = int(15.0 / self.resolution)
+        # Create entire square room (all walkable)
+        wall_thickness = 0.5  # meters
+        margin = 1.0  # 1m from edges
+
+        # Room boundaries
+        x_start = int(margin / self.resolution)
+        x_end = int((self.width_m - margin) / self.resolution)
+        y_start = int(margin / self.resolution)
+        y_end = int((self.height_m - margin) / self.resolution)
+
+        # Fill entire room as walkable
         grid[y_start:y_end, x_start:x_end] = 1.0
 
-        # Hallway 2 (vertical): 2m wide, connects to hallway 1
-        x_start2 = int(7.0 / self.resolution)
-        x_end2 = x_start2 + hallway_width_cells
-        y_start2 = y_end  # Connects to hallway 1
-        y_end2 = int(8.0 / self.resolution)
-        grid[y_start2:y_end2, x_start2:x_end2] = 1.0
+        # Add vertical wall in the middle
+        wall_cells = int(wall_thickness / self.resolution)
+        wall_x_center = int(self.width_m / 2.0 / self.resolution)
+        wall_x_start = wall_x_center - wall_cells // 2
+        wall_x_end = wall_x_start + wall_cells
+
+        # Wall divides the room vertically (from bottom to top)
+        grid[y_start:y_end, wall_x_start:wall_x_end] = 0.0
 
         # Apply Gaussian smoothing to create gradient at walls
         from scipy.ndimage import gaussian_filter
@@ -162,8 +166,11 @@ class BayesianNavigationFilter:
 
         # Tunable parameters
         self.sigma_stride = 0.1  # Stride length uncertainty (meters)
-        self.sigma_heading = 0.5  # Heading uncertainty (radians)
-        self.sigma_motion = 0.3  # Motion model uncertainty (meters)
+        self.sigma_heading = 0.5  # Heading uncertainty (radians) - trust IMU heading
+        self.sigma_motion = 0.5  # Motion model uncertainty (meters)
+
+        # Floor plan weight (higher = stronger wall constraints)
+        self.floor_plan_weight = 50.0  # Strong wall avoidance - Bayesian filter's key advantage!
 
     def p_stride_circle(self, x, y, x_prev, y_prev, stride_length):
         """
@@ -204,9 +211,9 @@ class BayesianNavigationFilter:
         Returns:
             Probability density
         """
-        # IMU prediction
-        z_x = x_prev + stride_length * np.sin(heading)
-        z_y = y_prev + stride_length * np.cos(heading)
+        # IMU prediction (standard math: x = cos, y = sin)
+        z_x = x_prev + stride_length * np.cos(heading)
+        z_y = y_prev + stride_length * np.sin(heading)
 
         # Gaussian likelihood centered at IMU prediction
         mean = np.array([z_x, z_y])
@@ -223,8 +230,9 @@ class BayesianNavigationFilter:
         """
         p(xk|xk-1, ..., xk-n): Extended motion model
 
-        Predicts locations on a line for straight segments,
-        curves for corners. Uses n previous positions.
+        For pedestrian navigation, we use a WEAK uniform prior since
+        the IMU heading is much more reliable than velocity extrapolation.
+        Velocity extrapolation fights direction changes and causes errors.
 
         Args:
             x, y: Candidate position
@@ -232,36 +240,9 @@ class BayesianNavigationFilter:
         Returns:
             Probability density
         """
-        if len(self.position_history) < 2:
-            # Not enough history, return uniform
-            return 1.0
-
-        # Get last n positions
-        history = self.position_history[-self.n_history:]
-
-        if len(history) < 2:
-            return 1.0
-
-        # Predict next position using linear extrapolation
-        last_pos = np.array([history[-1]['x'], history[-1]['y']])
-        prev_pos = np.array([history[-2]['x'], history[-2]['y']])
-
-        # Velocity vector
-        velocity = last_pos - prev_pos
-
-        # Predicted position
-        predicted = last_pos + velocity
-
-        # Gaussian around predicted position
-        mean = predicted
-        cov = np.eye(2) * self.sigma_motion**2
-
-        try:
-            prob = multivariate_normal.pdf([x, y], mean=mean, cov=cov)
-        except:
-            prob = 1e-10
-
-        return prob
+        # Use uniform weak prior - don't fight the IMU heading
+        # The IMU sensor likelihood p(zk|xk) handles direction
+        return 1.0
 
     def p_previous_posterior(self, x, y):
         """
@@ -318,7 +299,8 @@ class BayesianNavigationFilter:
         p_prev = self.p_previous_posterior(x, y)
 
         # Combine (use log probabilities for numerical stability)
-        log_posterior = (np.log(p_fp + 1e-10) +
+        # Apply extra weight to floor plan to enforce wall constraints
+        log_posterior = (self.floor_plan_weight * np.log(p_fp + 1e-10) +
                         np.log(p_stride + 1e-10) +
                         np.log(p_sensor + 1e-10) +
                         np.log(p_motion + 1e-10) +
@@ -344,9 +326,9 @@ class BayesianNavigationFilter:
         x_prev = self.current_estimate['x']
         y_prev = self.current_estimate['y']
 
-        # Initial guess (IMU prediction)
-        x0 = [x_prev + stride_length * np.sin(heading),
-              y_prev + stride_length * np.cos(heading)]
+        # Initial guess (IMU prediction, standard math: x = cos, y = sin)
+        x0 = [x_prev + stride_length * np.cos(heading),
+              y_prev + stride_length * np.sin(heading)]
 
         # Mode-seeking: Find maximum of posterior (minimize negative posterior)
         result = minimize(

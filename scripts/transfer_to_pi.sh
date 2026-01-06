@@ -1,29 +1,39 @@
 #!/bin/bash
-# Transfer scripts to Raspberry Pi
+# Transfer complete dashboard system to Raspberry Pi
 # Usage: ./transfer_to_pi.sh
 
 PI_USER="jdmc"
-PI_HOST="10.111.224.71"
+PI_HOST="10.49.216.71"
 PI_ADDR="${PI_USER}@${PI_HOST}"
 
 echo "=========================================="
-echo "Transferring scripts to Raspberry Pi"
+echo "Transferring Dashboard to Raspberry Pi"
 echo "=========================================="
 echo "Raspberry Pi: ${PI_ADDR}"
 echo ""
 
-# Create remote directory
-echo "Creating remote directory..."
-ssh ${PI_ADDR} "mkdir -p ~/dataFusion"
+# Create remote directories
+echo "Creating remote directories..."
+ssh ${PI_ADDR} "mkdir -p ~/dataFusion/src ~/dataFusion/templates ~/dataFusion/output"
 
-# Transfer Python scripts
-echo "Transferring Python scripts..."
-scp 01_collect_stride_data.py ${PI_ADDR}:~/dataFusion/
-scp 02_naive_dead_reckoning.py ${PI_ADDR}:~/dataFusion/
-scp understand_sensors.py ${PI_ADDR}:~/dataFusion/
+# Transfer Python source files
+echo "Transferring Python source files..."
+scp ../src/bayesian_filter.py ${PI_ADDR}:~/dataFusion/src/
+scp ../src/kalman_filter.py ${PI_ADDR}:~/dataFusion/src/
+scp ../src/particle_filter.py ${PI_ADDR}:~/dataFusion/src/
+scp ../src/web_dashboard_advanced.py ${PI_ADDR}:~/dataFusion/src/
+
+# Transfer HTML templates
+echo "Transferring HTML templates..."
+scp ../templates/tracking.html ${PI_ADDR}:~/dataFusion/templates/
+scp ../templates/advanced.html ${PI_ADDR}:~/dataFusion/templates/
+
+# Transfer floor plan image
+echo "Transferring floor plan..."
+scp ../output/floor_plan_pdf.png ${PI_ADDR}:~/dataFusion/output/ 2>/dev/null || echo "  (Floor plan image not found, will be generated on RPi)"
 
 echo ""
-echo "✓ Scripts transferred successfully!"
+echo "✓ Dashboard transferred successfully!"
 echo ""
 echo "=========================================="
 echo "Next steps:"
@@ -31,13 +41,19 @@ echo "=========================================="
 echo "1. SSH into Raspberry Pi:"
 echo "   ssh ${PI_ADDR}"
 echo ""
-echo "2. Navigate to folder:"
+echo "2. Install dependencies (first time only):"
+echo "   sudo apt-get update"
+echo "   sudo apt-get install -y python3-pip python3-flask python3-numpy python3-scipy"
+echo "   pip3 install sense-hat --break-system-packages"
+echo ""
+echo "3. Navigate to folder:"
 echo "   cd ~/dataFusion"
 echo ""
-echo "3. Run scripts:"
-echo "   python 01_collect_stride_data.py"
-echo "   python 02_naive_dead_reckoning.py"
+echo "4. Start the dashboard:"
+echo "   python3 src/web_dashboard_advanced.py"
 echo ""
-echo "4. Transfer data back (run on your computer):"
-echo "   ./get_data_from_pi.sh"
+echo "5. Access dashboard from your laptop:"
+echo "   http://10.49.216.71:5001"
+echo ""
+echo "6. Put RPi in backpack, click START WALKING, and walk around!"
 echo "=========================================="

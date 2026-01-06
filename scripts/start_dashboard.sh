@@ -4,4 +4,4 @@
 echo "🚀 Starting Web Dashboard on Raspberry Pi..."
 echo ""
 
-ssh jdmc@10.111.224.71 "cd ~/dataFusion && python3 web_dashboard.py"
+ssh jdmc@10.49.216.71 "cd ~/dataFusion && python3 web_dashboard.py"
