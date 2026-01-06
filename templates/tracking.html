@@ -801,7 +801,10 @@
         function startTracking() {
             console.log('[START WALKING] Button clicked - initiating tracking...');
 
-            fetch('/api/auto_walk/start', { method: 'POST' })
+            fetch('/api/auto_walk/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
                 .then(response => response.json())
                 .then(data => {
                     console.log('[START WALKING] Response:', data);
@@ -838,7 +841,10 @@
         function stopTracking() {
             console.log('[STOP WALKING] Button clicked - stopping tracking...');
 
-            fetch('/api/auto_walk/stop', { method: 'POST' })
+            fetch('/api/auto_walk/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
                 .then(response => response.json())
                 .then(data => {
                     console.log('[STOP WALKING] Response:', data);
