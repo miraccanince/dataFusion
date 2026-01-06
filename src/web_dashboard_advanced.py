@@ -807,8 +807,8 @@ def start_auto_walk():
         if auto_walk_active:
             return jsonify({'success': False, 'message': 'Auto-walk already active'})
 
-        # Parse optional parameters
-        data = request.json or {}
+        # Parse optional parameters (use get_json(silent=True) to handle empty body)
+        data = request.get_json(silent=True) or {}
         if 'threshold' in data:
             global stride_threshold
             stride_threshold = float(data['threshold'])
