@@ -68,19 +68,14 @@ sense.set_imu_config(True, True, True)
 stride_count = 0
 STRIDE_LENGTH = 0.7
 
-# Auto-stride detection state
-auto_walk_active = False
-auto_walk_thread = None
-auto_walk_lock = threading.Lock()
-last_stride_time = 0.0
-stride_threshold = 1.2  # Acceleration threshold in g
-min_stride_interval = 0.3  # Minimum 0.3s between strides
-
-# Joystick button stride detection state
+# Joystick button stride detection state (ONLY MODE - removed accelerometer auto-detection)
 joystick_walk_active = False
 joystick_walk_thread = None
 joystick_walk_lock = threading.Lock()
-stride_mode = "accelerometer"  # Options: "accelerometer", "joystick_middle", "joystick_directional"
+
+# Current LED matrix state (8x8 grid of RGB values) for real-time UI display
+current_led_matrix = [[0, 0, 0] for _ in range(64)]  # 64 pixels, each [R, G, B]
+led_matrix_lock = threading.Lock()
 
 # Store multiple trajectories for comparison
 trajectories = {
@@ -177,55 +172,64 @@ def simple_kalman_filter(measurement, state):
 
     return x_est
 
-def detect_stride(accel_data):
+def determine_walking_direction_from_imu():
     """
-    Detect stride based on DEVIATION from gravity (orientation-independent)
+    Determine walking direction from IMU roll/pitch/yaw
 
-    KEY INSIGHT:
-    - At rest (any orientation): total magnitude = 1.0g (just gravity)
-    - Walking with bouncing: magnitude varies (1.2g+ foot strike, <0.9g flight)
-    - Smooth rotation: magnitude stays 1.0g (gravity redistributes across axes)
-
-    This works regardless of Pi orientation!
-
-    Args:
-        accel_data: Accelerometer reading {'x', 'y', 'z'} in g units
+    Uses the Pi's orientation to determine which direction the person is walking:
+    - Yaw (compass heading): Which direction you're facing (0°=East, 90°=North, 180°=West, 270°=South)
+    - Roll: Tilt left/right (not used for direction, but logged for debugging)
+    - Pitch: Tilt forward/backward (not used for direction, but logged for debugging)
 
     Returns:
-        bool: True if stride detected
+        heading_radians: The walking direction in radians (standard math: 0=East, π/2=North, etc.)
+        heading_description: Human-readable direction (e.g., "North", "Northeast", etc.)
     """
-    global last_stride_time
+    try:
+        # Get current orientation
+        orientation_deg = sense.get_orientation_degrees()
+        orientation_rad = sense.get_orientation_radians()
 
-    # Calculate total acceleration magnitude
-    accel_mag = np.sqrt(
-        accel_data['x']**2 +
-        accel_data['y']**2 +
-        accel_data['z']**2
-    )
+        roll = orientation_deg.get('roll', 0)
+        pitch = orientation_deg.get('pitch', 0)
+        yaw_rad = orientation_rad.get('yaw', 0)
+        yaw_deg = orientation_deg.get('yaw', 0)
 
-    # CRITICAL: Calculate DEVIATION from 1.0g gravity baseline
-    # This is orientation-independent!
-    #
-    # Examples:
-    # - Pi flat, at rest: mag ≈ 1.0g → deviation ≈ 0.0g
-    # - Pi rotated, at rest: mag ≈ 1.0g → deviation ≈ 0.0g
-    # - Pi rotated smoothly: mag ≈ 1.0g → deviation ≈ 0.0g
-    # - Walking (foot strike): mag ≈ 1.3g → deviation ≈ 0.3g → DETECTED!
-    # - Walking (flight phase): mag ≈ 0.8g → deviation ≈ 0.2g → DETECTED!
-    deviation = abs(accel_mag - 1.0)
+        # Determine cardinal/intercardinal direction from yaw
+        # Standard compass: 0°=North, 90°=East, 180°=South, 270°=West
+        # BUT we need to convert to math convention: 0=East, 90°=North, 180°=West, 270°=South
+        # Conversion: math_angle = 90° - compass_angle
 
-    # Detect significant deviation indicating vertical bouncing
-    # stride_threshold = 1.2g means we detect when deviation > 0.2g
-    threshold_deviation = stride_threshold - 1.0
+        # Normalize yaw to 0-360
+        yaw_normalized = yaw_deg % 360
 
-    if deviation > threshold_deviation:
-        current_time = time.time()
-        if (current_time - last_stride_time) > min_stride_interval:
-            last_stride_time = current_time
-            logger.info(f"   [STRIDE DETECTED] Magnitude={accel_mag:.2f}g, Deviation={deviation:.2f}g")
-            return True
+        # Determine direction label
+        if 337.5 <= yaw_normalized or yaw_normalized < 22.5:
+            direction = "North"
+        elif 22.5 <= yaw_normalized < 67.5:
+            direction = "Northeast"
+        elif 67.5 <= yaw_normalized < 112.5:
+            direction = "East"
+        elif 112.5 <= yaw_normalized < 157.5:
+            direction = "Southeast"
+        elif 157.5 <= yaw_normalized < 202.5:
+            direction = "South"
+        elif 202.5 <= yaw_normalized < 247.5:
+            direction = "Southwest"
+        elif 267.5 <= yaw_normalized < 292.5:
+            direction = "West"
+        elif 292.5 <= yaw_normalized < 337.5:
+            direction = "Northwest"
+        else:
+            direction = "Unknown"
 
-    return False
+        logger.info(f"   [IMU] Roll={roll:.1f}°, Pitch={pitch:.1f}°, Yaw={yaw_deg:.1f}° → Walking {direction}")
+
+        return yaw_rad, direction
+
+    except Exception as e:
+        logger.error(f"Error reading IMU orientation: {e}")
+        return 0.0, "Unknown"
 
 def process_stride_all_algorithms(yaw):
     """Process a detected stride for all algorithms"""
@@ -321,75 +325,31 @@ def process_stride_all_algorithms(yaw):
         O, O, O, O, O, O, O, O
     ]
 
+    # Update LED matrix
+    with led_matrix_lock:
+        global current_led_matrix
+        current_led_matrix = grid.copy()
+
     sense.set_pixels(grid)
     time.sleep(0.1)
     sense.clear()
 
-def auto_walk_monitor():
-    """Background thread that monitors for automatic stride detection"""
-    global auto_walk_active, latest_imu
-
-    logger.info("🚶 Auto-walk monitor started")
-    logger.info(f"   Stride threshold: {stride_threshold}g")
-    logger.info(f"   Min stride interval: {min_stride_interval}s")
-    logger.info(f"   💡 TIP: Walk vigorously to trigger stride detection!")
-
-    sample_count = 0
-
-    while auto_walk_active:
-        try:
-            # Read accelerometer
-            accel = sense.get_accelerometer_raw()
-
-            # ALWAYS update IMU readings (so UI shows live sensor data)
-            orientation_deg = sense.get_orientation_degrees()
-            latest_imu = {
-                'roll': round(orientation_deg.get('roll', 0), 1),
-                'pitch': round(orientation_deg.get('pitch', 0), 1),
-                'yaw': round(orientation_deg.get('yaw', 0), 1)
-            }
-
-            # Log acceleration magnitude every 2 seconds (for debugging)
-            sample_count += 1
-            if sample_count % 40 == 0:  # Every 2 seconds (40 samples * 0.05s)
-                accel_mag = np.sqrt(accel['x']**2 + accel['y']**2 + accel['z']**2)
-                deviation = abs(accel_mag - 1.0)
-                threshold_dev = stride_threshold - 1.0
-                logger.info(f"   Accel: mag={accel_mag:.2f}g, deviation={deviation:.2f}g (threshold={threshold_dev:.2f}g)")
-
-            # Detect stride
-            if detect_stride(accel):
-                # Get current heading (use Kalman filtered yaw)
-                orientation = sense.get_orientation_radians()
-                raw_yaw = orientation.get('yaw', 0)
-                filtered_yaw = simple_kalman_filter(raw_yaw, kalman_state)
-
-                # Process stride for all algorithms
-                with auto_walk_lock:
-                    process_stride_all_algorithms(filtered_yaw)
-
-                logger.info(f"✓ Stride {stride_count} detected! Position: Bayesian=({positions['bayesian']['x']:.2f}, {positions['bayesian']['y']:.2f})")
-
-            # Sleep to avoid excessive CPU usage
-            time.sleep(0.05)  # Check every 50ms
-
-        except Exception as e:
-            logger.error(f"Error in auto-walk monitor: {e}")
-            time.sleep(0.1)
-
-    logger.info("🛑 Auto-walk monitor stopped")
+    # Clear LED matrix after flash
+    with led_matrix_lock:
+        current_led_matrix = [[0, 0, 0] for _ in range(64)]
 
 def joystick_walk_monitor():
-    """Background thread that monitors joystick button presses for stride detection"""
-    global joystick_walk_active, latest_imu, stride_mode
+    """
+    Background thread that monitors joystick MIDDLE button for stride detection.
+
+    Uses IMU roll/pitch/yaw to determine walking direction automatically.
+    NO automatic accelerometer detection - ONLY button presses count!
+    """
+    global joystick_walk_active, latest_imu
 
     logger.info("🕹️  Joystick walk monitor started")
-    logger.info(f"   Mode: {stride_mode}")
-
-    if stride_mode == "joystick_middle":
-        logger.info("   💡 TIP: Press the MIDDLE button (push down on joystick) to count each stride!")
-    elif stride_mode == "joystick_directional":
-        logger.info("   💡 TIP: Press joystick UP/DOWN/LEFT/RIGHT to walk in that direction!")
+    logger.info("   💡 TIP: Press the MIDDLE button (push down on joystick) for each stride!")
+    logger.info("   💡 Direction is determined from Pi orientation (roll/pitch/yaw)")
 
     # Import joystick constants
     try:
@@ -398,100 +358,65 @@ def joystick_walk_monitor():
         # Mock mode - define constants
         ACTION_PRESSED = "pressed"
 
-    # Define direction-to-heading mapping (in radians)
-    # Standard math: 0=East, π/2=North, π=West, -π/2=South
-    direction_headings = {
-        'up': np.pi / 2,      # North
-        'down': -np.pi / 2,   # South
-        'right': 0,           # East
-        'left': np.pi,        # West
-        'middle': None        # Use current IMU heading
-    }
-
-    def handle_joystick_event(event):
-        """Process a joystick event and register a stride if appropriate"""
+    def handle_joystick_middle_button(event):
+        """Process middle button press - registers ONE stride"""
         global latest_imu
 
         # Only process button presses (not releases or holds)
         if event.action != ACTION_PRESSED:
             return
 
-        direction = event.direction
-        logger.info(f"   [JOYSTICK] Button pressed: {direction}")
+        logger.info("   [JOYSTICK] 🔘 MIDDLE BUTTON PRESSED!")
 
-        # Determine heading based on mode
-        heading = None
+        with joystick_walk_lock:
+            try:
+                # Determine walking direction from current IMU orientation
+                heading_rad, direction_name = determine_walking_direction_from_imu()
 
-        if stride_mode == "joystick_middle":
-            # Only middle button counts as stride, use current IMU heading
-            if direction == 'middle':
-                orientation = sense.get_orientation_radians()
-                raw_yaw = orientation.get('yaw', 0)
-                heading = simple_kalman_filter(raw_yaw, kalman_state)
-                logger.info(f"   [JOYSTICK STRIDE] Middle button - using IMU heading: {np.degrees(heading):.1f}°")
-            else:
-                logger.info(f"   [JOYSTICK] Ignoring {direction} (only middle button counts in this mode)")
-                return
-
-        elif stride_mode == "joystick_directional":
-            # Any direction button triggers stride in that direction
-            if direction in direction_headings and direction != 'middle':
-                heading = direction_headings[direction]
-                logger.info(f"   [JOYSTICK STRIDE] {direction.upper()} button - heading: {np.degrees(heading):.1f}°")
-            else:
-                logger.info(f"   [JOYSTICK] Ignoring middle button (only directional buttons count in this mode)")
-                return
-
-        # Process the stride
-        if heading is not None:
-            with joystick_walk_lock:
-                # Update IMU readings
-                try:
-                    orientation_deg = sense.get_orientation_degrees()
-                    latest_imu = {
-                        'roll': round(orientation_deg.get('roll', 0), 1),
-                        'pitch': round(orientation_deg.get('pitch', 0), 1),
-                        'yaw': round(orientation_deg.get('yaw', 0), 1)
-                    }
-                except Exception as e:
-                    logger.warning(f"Failed to read IMU: {e}")
+                # Update latest IMU readings for UI
+                orientation_deg = sense.get_orientation_degrees()
+                latest_imu = {
+                    'roll': round(orientation_deg.get('roll', 0), 1),
+                    'pitch': round(orientation_deg.get('pitch', 0), 1),
+                    'yaw': round(orientation_deg.get('yaw', 0), 1)
+                }
 
                 # Process stride for all algorithms
-                process_stride_all_algorithms(heading)
-                logger.info(f"✓ Stride {stride_count} (joystick)! Position: Bayesian=({positions['bayesian']['x']:.2f}, {positions['bayesian']['y']:.2f})")
+                process_stride_all_algorithms(heading_rad)
 
-    # Assign event handlers based on mode
-    if stride_mode == "joystick_middle":
-        sense.stick.direction_middle = handle_joystick_event
-    elif stride_mode == "joystick_directional":
-        sense.stick.direction_up = handle_joystick_event
-        sense.stick.direction_down = handle_joystick_event
-        sense.stick.direction_left = handle_joystick_event
-        sense.stick.direction_right = handle_joystick_event
+                logger.info(f"✓ STRIDE {stride_count} COUNTED! Direction: {direction_name} ({np.degrees(heading_rad):.1f}°)")
+                logger.info(f"  Position: Bayesian=({positions['bayesian']['x']:.2f}, {positions['bayesian']['y']:.2f})")
 
-    logger.info("🕹️  Joystick event handlers registered")
+            except Exception as e:
+                logger.error(f"Failed to process stride: {e}")
+
+    # Assign ONLY middle button handler
+    sense.stick.direction_middle = handle_joystick_middle_button
+
+    logger.info("🕹️  Joystick MIDDLE button handler registered")
 
     # Keep thread alive while active
     while joystick_walk_active:
         try:
-            # Update IMU readings periodically (so UI stays live)
+            # Update IMU readings periodically (so UI shows live sensor data)
             orientation_deg = sense.get_orientation_degrees()
             latest_imu = {
                 'roll': round(orientation_deg.get('roll', 0), 1),
                 'pitch': round(orientation_deg.get('pitch', 0), 1),
                 'yaw': round(orientation_deg.get('yaw', 0), 1)
             }
-            time.sleep(0.1)  # Check every 100ms
+
+            # Update LED matrix to show current orientation (optional visual feedback)
+            # You could add a simple compass indicator here later
+
+            time.sleep(0.1)  # Update every 100ms
+
         except Exception as e:
             logger.error(f"Error in joystick monitor: {e}")
             time.sleep(0.1)
 
-    # Clean up event handlers when stopping
+    # Clean up event handler when stopping
     sense.stick.direction_middle = None
-    sense.stick.direction_up = None
-    sense.stick.direction_down = None
-    sense.stick.direction_left = None
-    sense.stick.direction_right = None
 
     logger.info("🛑 Joystick walk monitor stopped")
 
