@@ -173,29 +173,42 @@ def simple_kalman_filter(measurement, state):
 
 def detect_stride(accel_data):
     """
-    Detect stride based on acceleration magnitude
+    Detect stride based on vertical acceleration (Z-axis) deviation from gravity
+
+    Walking creates vertical bouncing that shows up as Z-axis variation.
+    Rotation doesn't create this pattern, so we avoid false positives.
 
     Args:
-        accel_data: Accelerometer reading {'x', 'y', 'z'}
+        accel_data: Accelerometer reading {'x', 'y', 'z'} in g units
 
     Returns:
         bool: True if stride detected
     """
     global last_stride_time
 
-    # Calculate acceleration magnitude
+    # Calculate total acceleration magnitude for logging
     accel_mag = np.sqrt(
         accel_data['x']**2 +
         accel_data['y']**2 +
         accel_data['z']**2
     )
 
-    # Detect if magnitude exceeds threshold
-    # Also check minimum time between strides (prevents false positives)
-    if accel_mag > stride_threshold:
+    # CRITICAL FIX: Use Z-axis (vertical) acceleration instead of total magnitude
+    # When walking, vertical bouncing creates spikes in Z-axis acceleration
+    # At rest (just gravity): z ≈ 1.0g
+    # When walking (foot strike): z > 1.2g or z < 0.8g (deviation from gravity)
+    #
+    # Rotation changes x/y/z components but shouldn't create large Z deviations
+    # unless you're actually bouncing the Pi up and down
+    z_accel = abs(accel_data['z'])
+
+    # Detect deviation from gravity baseline (1.0g)
+    # Look for strong vertical acceleration indicating foot strike
+    if z_accel > stride_threshold or z_accel < (2.0 - stride_threshold):
         current_time = time.time()
         if (current_time - last_stride_time) > min_stride_interval:
             last_stride_time = current_time
+            logger.info(f"   [STRIDE DETECTED] Z={z_accel:.2f}g, Total={accel_mag:.2f}g")
             return True
 
     return False
@@ -279,17 +292,22 @@ def process_stride_all_algorithms(yaw):
 
     # Visual feedback on SenseHat LED
     # Green flash = stride detected
-    # Arrow shows heading direction
-    sense.set_pixels([
-        [0,255,0]*8,  # Green row = stride detected
-        [0,0,0]*8,
-        [0,0,0]*8,
-        [0,0,0]*8,
-        [0,0,0]*8,
-        [0,0,0]*8,
-        [0,0,0]*8,
-        [0,0,0]*8
-    ])
+    G = [0, 255, 0]  # Green
+    O = [0, 0, 0]    # Off
+
+    # Create 8x8 grid (64 pixels) - flash green on top row
+    grid = [
+        G, G, G, G, G, G, G, G,  # Row 1: All green
+        O, O, O, O, O, O, O, O,  # Rows 2-8: Off
+        O, O, O, O, O, O, O, O,
+        O, O, O, O, O, O, O, O,
+        O, O, O, O, O, O, O, O,
+        O, O, O, O, O, O, O, O,
+        O, O, O, O, O, O, O, O,
+        O, O, O, O, O, O, O, O
+    ]
+
+    sense.set_pixels(grid)
     time.sleep(0.1)
     sense.clear()
 
