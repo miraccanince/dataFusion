@@ -801,48 +801,75 @@ def get_floor_plan():
 @app.route('/api/auto_walk/start', methods=['POST'])
 def start_auto_walk():
     """Start automatic stride detection"""
-    global auto_walk_active, auto_walk_thread
+    try:
+        global auto_walk_active, auto_walk_thread
 
-    if auto_walk_active:
-        return jsonify({'success': False, 'message': 'Auto-walk already active'})
+        if auto_walk_active:
+            return jsonify({'success': False, 'message': 'Auto-walk already active'})
 
-    # Parse optional parameters
-    data = request.json or {}
-    if 'threshold' in data:
-        global stride_threshold
-        stride_threshold = float(data['threshold'])
+        # Parse optional parameters
+        data = request.json or {}
+        if 'threshold' in data:
+            global stride_threshold
+            stride_threshold = float(data['threshold'])
 
-    # Start background thread
-    auto_walk_active = True
-    auto_walk_thread = threading.Thread(target=auto_walk_monitor, daemon=True)
-    auto_walk_thread.start()
+        logger.info("[START AUTO-WALK] Starting automatic stride detection...")
 
-    return jsonify({
-        'success': True,
-        'message': 'Auto-walk started',
-        'threshold': stride_threshold,
-        'min_interval': min_stride_interval
-    })
+        # Start background thread
+        auto_walk_active = True
+        auto_walk_thread = threading.Thread(target=auto_walk_monitor, daemon=True)
+        auto_walk_thread.start()
+
+        logger.info("[START AUTO-WALK] ✓ Background thread started successfully")
+
+        return jsonify({
+            'success': True,
+            'message': 'Auto-walk started',
+            'threshold': stride_threshold,
+            'min_interval': min_stride_interval
+        })
+
+    except Exception as e:
+        logger.error(f"[START AUTO-WALK] Error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': f'Failed to start auto-walk: {str(e)}'
+        }), 500
 
 @app.route('/api/auto_walk/stop', methods=['POST'])
 def stop_auto_walk():
     """Stop automatic stride detection"""
-    global auto_walk_active, auto_walk_thread
+    try:
+        global auto_walk_active, auto_walk_thread, stride_count
 
-    if not auto_walk_active:
-        return jsonify({'success': False, 'message': 'Auto-walk not active'})
+        if not auto_walk_active:
+            return jsonify({'success': False, 'message': 'Auto-walk not active'})
 
-    # Stop background thread
-    auto_walk_active = False
+        logger.info("[STOP AUTO-WALK] Stopping automatic stride detection...")
 
-    # Wait for thread to finish (with timeout)
-    if auto_walk_thread and auto_walk_thread.is_alive():
-        auto_walk_thread.join(timeout=2.0)
+        # Stop background thread
+        auto_walk_active = False
 
-    return jsonify({
-        'success': True,
-        'message': 'Auto-walk stopped'
-    })
+        # Wait for thread to finish (with timeout)
+        if auto_walk_thread and auto_walk_thread.is_alive():
+            auto_walk_thread.join(timeout=2.0)
+
+        logger.info(f"[STOP AUTO-WALK] ✓ Stopped (captured {stride_count} strides)")
+
+        return jsonify({
+            'success': True,
+            'message': 'Auto-walk stopped',
+            'stride_count': stride_count
+        })
+
+    except Exception as e:
+        logger.error(f"[STOP AUTO-WALK] Error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': f'Failed to stop auto-walk: {str(e)}'
+        }), 500
 
 @app.route('/api/auto_walk/status')
 def get_auto_walk_status():
