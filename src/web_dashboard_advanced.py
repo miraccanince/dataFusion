@@ -76,6 +76,12 @@ last_stride_time = 0.0
 stride_threshold = 1.2  # Acceleration threshold in g
 min_stride_interval = 0.3  # Minimum 0.3s between strides
 
+# Joystick button stride detection state
+joystick_walk_active = False
+joystick_walk_thread = None
+joystick_walk_lock = threading.Lock()
+stride_mode = "accelerometer"  # Options: "accelerometer", "joystick_middle", "joystick_directional"
+
 # Store multiple trajectories for comparison
 trajectories = {
     'naive': [],
@@ -372,6 +378,122 @@ def auto_walk_monitor():
             time.sleep(0.1)
 
     logger.info("🛑 Auto-walk monitor stopped")
+
+def joystick_walk_monitor():
+    """Background thread that monitors joystick button presses for stride detection"""
+    global joystick_walk_active, latest_imu, stride_mode
+
+    logger.info("🕹️  Joystick walk monitor started")
+    logger.info(f"   Mode: {stride_mode}")
+
+    if stride_mode == "joystick_middle":
+        logger.info("   💡 TIP: Press the MIDDLE button (push down on joystick) to count each stride!")
+    elif stride_mode == "joystick_directional":
+        logger.info("   💡 TIP: Press joystick UP/DOWN/LEFT/RIGHT to walk in that direction!")
+
+    # Import joystick constants
+    try:
+        from sense_hat import ACTION_PRESSED
+    except ImportError:
+        # Mock mode - define constants
+        ACTION_PRESSED = "pressed"
+
+    # Define direction-to-heading mapping (in radians)
+    # Standard math: 0=East, π/2=North, π=West, -π/2=South
+    direction_headings = {
+        'up': np.pi / 2,      # North
+        'down': -np.pi / 2,   # South
+        'right': 0,           # East
+        'left': np.pi,        # West
+        'middle': None        # Use current IMU heading
+    }
+
+    def handle_joystick_event(event):
+        """Process a joystick event and register a stride if appropriate"""
+        global latest_imu
+
+        # Only process button presses (not releases or holds)
+        if event.action != ACTION_PRESSED:
+            return
+
+        direction = event.direction
+        logger.info(f"   [JOYSTICK] Button pressed: {direction}")
+
+        # Determine heading based on mode
+        heading = None
+
+        if stride_mode == "joystick_middle":
+            # Only middle button counts as stride, use current IMU heading
+            if direction == 'middle':
+                orientation = sense.get_orientation_radians()
+                raw_yaw = orientation.get('yaw', 0)
+                heading = simple_kalman_filter(raw_yaw, kalman_state)
+                logger.info(f"   [JOYSTICK STRIDE] Middle button - using IMU heading: {np.degrees(heading):.1f}°")
+            else:
+                logger.info(f"   [JOYSTICK] Ignoring {direction} (only middle button counts in this mode)")
+                return
+
+        elif stride_mode == "joystick_directional":
+            # Any direction button triggers stride in that direction
+            if direction in direction_headings and direction != 'middle':
+                heading = direction_headings[direction]
+                logger.info(f"   [JOYSTICK STRIDE] {direction.upper()} button - heading: {np.degrees(heading):.1f}°")
+            else:
+                logger.info(f"   [JOYSTICK] Ignoring middle button (only directional buttons count in this mode)")
+                return
+
+        # Process the stride
+        if heading is not None:
+            with joystick_walk_lock:
+                # Update IMU readings
+                try:
+                    orientation_deg = sense.get_orientation_degrees()
+                    latest_imu = {
+                        'roll': round(orientation_deg.get('roll', 0), 1),
+                        'pitch': round(orientation_deg.get('pitch', 0), 1),
+                        'yaw': round(orientation_deg.get('yaw', 0), 1)
+                    }
+                except Exception as e:
+                    logger.warning(f"Failed to read IMU: {e}")
+
+                # Process stride for all algorithms
+                process_stride_all_algorithms(heading)
+                logger.info(f"✓ Stride {stride_count} (joystick)! Position: Bayesian=({positions['bayesian']['x']:.2f}, {positions['bayesian']['y']:.2f})")
+
+    # Assign event handlers based on mode
+    if stride_mode == "joystick_middle":
+        sense.stick.direction_middle = handle_joystick_event
+    elif stride_mode == "joystick_directional":
+        sense.stick.direction_up = handle_joystick_event
+        sense.stick.direction_down = handle_joystick_event
+        sense.stick.direction_left = handle_joystick_event
+        sense.stick.direction_right = handle_joystick_event
+
+    logger.info("🕹️  Joystick event handlers registered")
+
+    # Keep thread alive while active
+    while joystick_walk_active:
+        try:
+            # Update IMU readings periodically (so UI stays live)
+            orientation_deg = sense.get_orientation_degrees()
+            latest_imu = {
+                'roll': round(orientation_deg.get('roll', 0), 1),
+                'pitch': round(orientation_deg.get('pitch', 0), 1),
+                'yaw': round(orientation_deg.get('yaw', 0), 1)
+            }
+            time.sleep(0.1)  # Check every 100ms
+        except Exception as e:
+            logger.error(f"Error in joystick monitor: {e}")
+            time.sleep(0.1)
+
+    # Clean up event handlers when stopping
+    sense.stick.direction_middle = None
+    sense.stick.direction_up = None
+    sense.stick.direction_down = None
+    sense.stick.direction_left = None
+    sense.stick.direction_right = None
+
+    logger.info("🛑 Joystick walk monitor stopped")
 
 @app.route('/')
 def index():
@@ -909,6 +1031,142 @@ def get_auto_walk_status():
         'min_interval': min_stride_interval,
         'last_stride_time': last_stride_time
     })
+
+@app.route('/api/joystick_walk/start', methods=['POST'])
+def start_joystick_walk():
+    """Start joystick button-based stride detection"""
+    try:
+        global joystick_walk_active, joystick_walk_thread, stride_mode, auto_walk_active
+
+        # Stop accelerometer mode if it's running
+        if auto_walk_active:
+            logger.info("[START JOYSTICK-WALK] Stopping accelerometer mode first...")
+            auto_walk_active = False
+            if auto_walk_thread and auto_walk_thread.is_alive():
+                auto_walk_thread.join(timeout=2.0)
+
+        if joystick_walk_active:
+            return jsonify({'success': False, 'message': 'Joystick-walk already active'})
+
+        # Parse parameters
+        data = request.get_json(silent=True) or {}
+        new_mode = data.get('mode', 'joystick_middle')
+
+        # Validate mode
+        if new_mode not in ['joystick_middle', 'joystick_directional']:
+            return jsonify({'success': False, 'message': f'Invalid mode: {new_mode}'}), 400
+
+        stride_mode = new_mode
+        logger.info(f"[START JOYSTICK-WALK] Starting joystick stride detection (mode: {stride_mode})...")
+
+        # Start background thread
+        joystick_walk_active = True
+        joystick_walk_thread = threading.Thread(target=joystick_walk_monitor, daemon=True)
+        joystick_walk_thread.start()
+
+        logger.info("[START JOYSTICK-WALK] ✓ Background thread started successfully")
+
+        return jsonify({
+            'success': True,
+            'message': 'Joystick-walk started',
+            'mode': stride_mode
+        })
+
+    except Exception as e:
+        logger.error(f"[START JOYSTICK-WALK] Error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': f'Failed to start joystick-walk: {str(e)}'
+        }), 500
+
+@app.route('/api/joystick_walk/stop', methods=['POST'])
+def stop_joystick_walk():
+    """Stop joystick button-based stride detection"""
+    try:
+        global joystick_walk_active, joystick_walk_thread, stride_count
+
+        if not joystick_walk_active:
+            return jsonify({'success': False, 'message': 'Joystick-walk not active'})
+
+        logger.info("[STOP JOYSTICK-WALK] Stopping joystick stride detection...")
+
+        # Stop background thread
+        joystick_walk_active = False
+
+        # Wait for thread to finish (with timeout)
+        if joystick_walk_thread and joystick_walk_thread.is_alive():
+            joystick_walk_thread.join(timeout=2.0)
+
+        logger.info(f"[STOP JOYSTICK-WALK] ✓ Stopped (captured {stride_count} strides)")
+
+        return jsonify({
+            'success': True,
+            'message': 'Joystick-walk stopped',
+            'stride_count': stride_count
+        })
+
+    except Exception as e:
+        logger.error(f"[STOP JOYSTICK-WALK] Error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': f'Failed to stop joystick-walk: {str(e)}'
+        }), 500
+
+@app.route('/api/joystick_walk/status')
+def get_joystick_walk_status():
+    """Get joystick-walk status"""
+    return jsonify({
+        'active': joystick_walk_active,
+        'mode': stride_mode,
+        'stride_count': stride_count
+    })
+
+@app.route('/api/stride_mode', methods=['GET', 'POST'])
+def stride_mode_api():
+    """Get or set the stride detection mode"""
+    global stride_mode, auto_walk_active, joystick_walk_active
+
+    if request.method == 'GET':
+        return jsonify({
+            'mode': stride_mode,
+            'auto_walk_active': auto_walk_active,
+            'joystick_walk_active': joystick_walk_active,
+            'available_modes': ['accelerometer', 'joystick_middle', 'joystick_directional']
+        })
+
+    elif request.method == 'POST':
+        try:
+            data = request.get_json()
+            new_mode = data.get('mode')
+
+            if new_mode not in ['accelerometer', 'joystick_middle', 'joystick_directional']:
+                return jsonify({'success': False, 'message': f'Invalid mode: {new_mode}'}), 400
+
+            # Stop all active modes first
+            if auto_walk_active:
+                auto_walk_active = False
+                if auto_walk_thread and auto_walk_thread.is_alive():
+                    auto_walk_thread.join(timeout=2.0)
+
+            if joystick_walk_active:
+                joystick_walk_active = False
+                if joystick_walk_thread and joystick_walk_thread.is_alive():
+                    joystick_walk_thread.join(timeout=2.0)
+
+            stride_mode = new_mode
+            logger.info(f"[STRIDE MODE] Changed to: {stride_mode}")
+
+            return jsonify({
+                'success': True,
+                'mode': stride_mode,
+                'message': f'Stride mode changed to {stride_mode}'
+            })
+
+        except Exception as e:
+            logger.error(f"[STRIDE MODE] Error: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/generate_report', methods=['POST'])
 def generate_report():

@@ -7,6 +7,16 @@ without needing the actual SenseHat hardware.
 import numpy as np
 import time
 
+class MockJoystick:
+    """Mock joystick for testing"""
+    def __init__(self):
+        self.direction_up = None
+        self.direction_down = None
+        self.direction_left = None
+        self.direction_right = None
+        self.direction_middle = None
+        self.direction_any = None
+
 class SenseHat:
     """Mock SenseHat that simulates realistic sensor readings"""
 
@@ -14,6 +24,7 @@ class SenseHat:
         self.current_heading = 0.0  # Current heading in radians
         self.time_offset = time.time()
         self.walking = False
+        self.stick = MockJoystick()  # Add joystick support
         print("⚠️  Using MOCK SenseHat (for testing without Raspberry Pi)")
 
     def set_imu_config(self, compass, gyro, accel):
