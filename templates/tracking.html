@@ -859,9 +859,14 @@
 
                         // Show confirmation alert
                         alert('🕹️ Joystick Mode Started!\n\n' +
-                              'Press the MIDDLE button (push down) on the SenseHat joystick for each stride.\n\n' +
-                              'Direction is automatically detected from Pi orientation (compass heading).\n\n' +
-                              'Watch the LED matrix display and IMU readings update in real-time!');
+                              'CONTROLS (SenseHat Joystick):\n' +
+                              '⬆️  UP = Walk North\n' +
+                              '➡️  RIGHT = Walk East\n' +
+                              '⬇️  DOWN = Walk South\n' +
+                              '⬅️  LEFT = Walk West\n' +
+                              '🔘 MIDDLE = Auto-detect from compass\n\n' +
+                              'Each button press = ONE stride!\n' +
+                              'Watch the map and LED matrix update in real-time!');
 
                         console.log('[START JOYSTICK] ✓ Joystick mode successfully started');
                     } else {
