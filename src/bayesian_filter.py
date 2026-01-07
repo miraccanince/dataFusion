@@ -36,15 +36,15 @@ class FloorPlanPDF:
         Initialize floor plan PDF
 
         Args:
-            width_m: Width in meters (default 3.5m)
-            height_m: Height in meters (default 6.0m)
+            width_m: Width in meters (OUTER dimensions including walls, default 3.5m)
+            height_m: Height in meters (OUTER dimensions including walls, default 6.0m)
             resolution: Grid resolution in meters (default 0.1m = 10cm)
         """
         self.width_m = width_m
         self.height_m = height_m
         self.resolution = resolution
 
-        # Grid dimensions
+        # Grid dimensions (these define the total area including walls)
         self.grid_width = int(width_m / resolution)
         self.grid_height = int(height_m / resolution)
 
@@ -58,55 +58,58 @@ class FloorPlanPDF:
         """
         Create a single rectangular room (3.5m x 6m) with 4 walls
 
-        Layout:
-        ######################
+        Layout (the room dimensions INCLUDE the walls):
+        ######################  <- 0.0m (top wall)
         ##                  ##
         ##                  ##
         ##   Single Room    ##
         ##   3.5m x 6m      ##
+        ##   (inner space)  ##
         ##                  ##
-        ##                  ##
-        ######################
+        ######################  <- 6.0m (bottom wall)
+        ^                    ^
+        0.0m                3.5m
+        (left wall)      (right wall)
 
-        Grid starts as all zeros (walls everywhere).
-        We carve out a walkable rectangle in the middle.
-        The surrounding zeros form the 4 walls.
+        The OUTER dimensions are 3.5m x 6.0m.
+        Walls are 0.3m thick on all sides.
+        Walkable area is interior only.
         """
-        # Start with all zeros = walls everywhere (very low probability)
+        # Start with all walls (low probability everywhere)
         grid = np.ones((self.grid_height, self.grid_width)) * 0.01
 
-        # Define wall thickness and walkable area
-        wall_thickness = 0.3  # meters (thicker walls for clear boundaries)
+        # Define wall thickness (must be thick enough to be visible)
+        wall_thickness = 0.3  # meters
 
-        # Calculate walkable area boundaries (leave space for walls on all 4 sides)
+        # Calculate walkable area INSIDE the walls
+        # Leave wall_thickness space from ALL edges (0, width_m, 0, height_m)
         x_start = int(wall_thickness / self.resolution)
         x_end = int((self.width_m - wall_thickness) / self.resolution)
         y_start = int(wall_thickness / self.resolution)
         y_end = int((self.height_m - wall_thickness) / self.resolution)
 
-        # Ensure indices are within grid bounds
-        x_start = max(0, x_start)
-        x_end = min(self.grid_width, x_end)
-        y_start = max(0, y_start)
-        y_end = min(self.grid_height, y_end)
+        # Ensure we don't go outside grid bounds
+        x_start = max(0, min(x_start, self.grid_width - 1))
+        x_end = max(x_start + 1, min(x_end, self.grid_width))
+        y_start = max(0, min(y_start, self.grid_height - 1))
+        y_end = max(y_start + 1, min(y_end, self.grid_height))
 
-        # Fill walkable area with high probability (1.0)
-        # This creates a rectangle surrounded by walls on all 4 sides
+        # Fill ONLY the walkable area (interior) with high probability
+        # Everything outside this rectangle remains low probability (walls)
         grid[y_start:y_end, x_start:x_end] = 1.0
 
-        # Apply Gaussian smoothing to create smooth gradient at wall boundaries
-        # This prevents hard edges that can cause filter oscillation
+        # Apply Gaussian smoothing for smooth gradients (prevents filter oscillation)
         from scipy.ndimage import gaussian_filter
-        grid = gaussian_filter(grid, sigma=1.5)
+        grid = gaussian_filter(grid, sigma=1.0)  # Reduced sigma for sharper walls
 
-        # Re-normalize to ensure walls stay low probability and room stays high
+        # Re-normalize to maintain clear distinction between walls and walkable area
         grid_min = np.min(grid)
         grid_max = np.max(grid)
         if grid_max > grid_min:
             # Map to [0.01, 1.0] range
+            # This ensures walls stay near 0.01 and walkable areas near 1.0
             grid = 0.01 + 0.99 * (grid - grid_min) / (grid_max - grid_min)
         else:
-            # Fallback: uniform low probability
             grid = 0.01 * np.ones_like(grid)
 
         return grid
