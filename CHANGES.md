@@ -136,11 +136,51 @@ FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
 
 ---
 
+## Debug Tools Added
+
+### 8. ✅ Comprehensive Filter Debug Logging
+**Added detailed logging system** to diagnose filter behavior differences
+
+**Logs for each stride:**
+- Input heading (absolute, relative, calibration info)
+- Naive filter calculations
+- **Bayesian filter internal debug:**
+  - IMU prediction calculation
+  - Wall detection status
+  - Optimization process (iterations, convergence)
+  - Actual vs expected displacement
+  - Floor plan probability
+- Kalman filter measurements and updates
+- Particle filter position estimates
+- Side-by-side position comparison
+- Deviation analysis from naive baseline
+
+**Files:**
+- `src/web_dashboard_advanced.py` (process_stride_all_algorithms: lines 241-390)
+- `src/bayesian_filter.py` (update method: lines 329-433)
+- `filters_debug.log` (output file, auto-cleared on reset)
+- `test_filter_debug.py` (test script)
+- `FILTER_DEBUG_GUIDE.md` (usage documentation)
+
+**Usage:**
+```bash
+# Run mock test or walk with Pi
+# Debug log populates at: filters_debug.log
+cat filters_debug.log
+
+# Test locally
+python3 test_filter_debug.py
+```
+
+---
+
 ## Documentation Added
 
 - `COORDINATE_SYSTEM.md` - Reference for navigation convention
+- `CALIBRATION.md` - IMU calibration system documentation
+- `FILTER_DEBUG_GUIDE.md` - How to use filter debug logging
 - `CHANGES.md` - This file
 
 ---
 
-**Status**: ✅ All critical bugs fixed, code cleaned, system verified working
+**Status**: ✅ All critical bugs fixed, code cleaned, debug tools added

@@ -242,6 +242,12 @@ def process_stride_all_algorithms(yaw):
     """Process a detected stride for all algorithms"""
     global stride_count, latest_imu
 
+    # === DEBUG LOG HEADER ===
+    debug_log_lines = []
+    debug_log_lines.append(f"\n{'='*80}")
+    debug_log_lines.append(f"STRIDE #{stride_count + 1} - {datetime.utcnow().isoformat()}")
+    debug_log_lines.append(f"{'='*80}")
+
     # Update IMU readings (get current orientation)
     try:
         global initial_yaw_reference
@@ -255,8 +261,17 @@ def process_stride_all_algorithms(yaw):
         if initial_yaw_reference is not None:
             yaw_relative_rad = yaw_absolute_rad - initial_yaw_reference
             yaw_display = round(np.degrees(yaw_relative_rad), 1)
+            debug_log_lines.append(f"\n[INPUT HEADING]")
+            debug_log_lines.append(f"  Absolute yaw: {yaw_absolute_deg:.2f}° ({yaw_absolute_rad:.4f} rad)")
+            debug_log_lines.append(f"  Initial reference: {np.degrees(initial_yaw_reference):.2f}°")
+            debug_log_lines.append(f"  Relative yaw (used): {yaw_display:.2f}° ({yaw_relative_rad:.4f} rad) [CALIBRATED]")
         else:
             yaw_display = round(yaw_absolute_deg, 1)
+            debug_log_lines.append(f"\n[INPUT HEADING]")
+            debug_log_lines.append(f"  Yaw: {yaw_display:.2f}° ({yaw:.4f} rad) [NOT CALIBRATED]")
+
+        debug_log_lines.append(f"  Stride length: {STRIDE_LENGTH:.2f}m")
+        debug_log_lines.append(f"  Coordinate system: Navigation (0°=North, x=sin, y=cos)")
 
         latest_imu = {
             'roll': round(orientation_deg.get('roll', 0), 1),
@@ -265,12 +280,18 @@ def process_stride_all_algorithms(yaw):
         }
     except Exception as e:
         logger.warning(f"Failed to read IMU orientation: {e}")
+        debug_log_lines.append(f"\n[ERROR] Failed to read IMU: {e}")
 
     # 1. NAIVE algorithm (simple dead reckoning)
+    debug_log_lines.append(f"\n[1. NAIVE FILTER]")
+    debug_log_lines.append(f"  Previous position: ({positions['naive']['x']:.3f}, {positions['naive']['y']:.3f})")
+    debug_log_lines.append(f"  Calculation: x += {STRIDE_LENGTH:.2f} * sin({np.degrees(yaw):.2f}°) = {STRIDE_LENGTH * np.sin(yaw):.4f}")
+    debug_log_lines.append(f"  Calculation: y += {STRIDE_LENGTH:.2f} * cos({np.degrees(yaw):.2f}°) = {STRIDE_LENGTH * np.cos(yaw):.4f}")
     # Navigation convention: 0°=North, x = sin(angle), y = cos(angle)
     new_x = positions['naive']['x'] + STRIDE_LENGTH * np.sin(yaw)
     new_y = positions['naive']['y'] + STRIDE_LENGTH * np.cos(yaw)
     positions['naive'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
+    debug_log_lines.append(f"  New position: ({positions['naive']['x']:.3f}, {positions['naive']['y']:.3f})")
     trajectories['naive'].append({
         'stride': stride_count,
         'timestamp': datetime.utcnow().isoformat(),
@@ -281,11 +302,20 @@ def process_stride_all_algorithms(yaw):
     })
 
     # 2. BAYESIAN FILTER (uses floor plan constraints)
+    debug_log_lines.append(f"\n[2. BAYESIAN FILTER]")
+    debug_log_lines.append(f"  Previous position: ({positions['bayesian']['x']:.3f}, {positions['bayesian']['y']:.3f})")
+    debug_log_lines.append(f"  Input heading: {np.degrees(yaw):.2f}° ({yaw:.4f} rad)")
+    debug_log_lines.append(f"  Input stride length: {STRIDE_LENGTH:.2f}m")
+    # Store pre-update position for debug
+    bayesian_prev_x = positions['bayesian']['x']
+    bayesian_prev_y = positions['bayesian']['y']
     estimated_pos = bayesian_filter.update(heading=yaw, stride_length=STRIDE_LENGTH)
     positions['bayesian'] = {
         'x': round(estimated_pos['x'], 3),
         'y': round(estimated_pos['y'], 3)
     }
+    debug_log_lines.append(f"  New position (after optimization): ({positions['bayesian']['x']:.3f}, {positions['bayesian']['y']:.3f})")
+    debug_log_lines.append(f"  Displacement: Δx={positions['bayesian']['x'] - bayesian_prev_x:.3f}, Δy={positions['bayesian']['y'] - bayesian_prev_y:.3f}")
     trajectories['bayesian'].append({
         'stride': stride_count,
         'timestamp': datetime.utcnow().isoformat(),
@@ -296,14 +326,18 @@ def process_stride_all_algorithms(yaw):
     })
 
     # 3. LINEAR KALMAN FILTER (position + velocity tracking)
+    debug_log_lines.append(f"\n[3. KALMAN FILTER]")
+    debug_log_lines.append(f"  Previous position: ({positions['kalman']['x']:.3f}, {positions['kalman']['y']:.3f})")
     # Calculate naive position as measurement
     # Navigation convention: 0°=North, x = sin(angle), y = cos(angle)
     naive_meas_x = positions['kalman']['x'] + STRIDE_LENGTH * np.sin(yaw)
     naive_meas_y = positions['kalman']['y'] + STRIDE_LENGTH * np.cos(yaw)
+    debug_log_lines.append(f"  Measurement (naive): ({naive_meas_x:.3f}, {naive_meas_y:.3f})")
     kalman_filter.predict()
     kalman_filter.update([naive_meas_x, naive_meas_y])
     kalman_pos = kalman_filter.get_position()
     positions['kalman'] = {'x': round(kalman_pos[0], 3), 'y': round(kalman_pos[1], 3)}
+    debug_log_lines.append(f"  New position (after Kalman update): ({positions['kalman']['x']:.3f}, {positions['kalman']['y']:.3f})")
     trajectories['kalman'].append({
         'stride': stride_count,
         'timestamp': datetime.utcnow().isoformat(),
@@ -314,9 +348,14 @@ def process_stride_all_algorithms(yaw):
     })
 
     # 4. PARTICLE FILTER (multiple hypotheses with floor plan)
+    debug_log_lines.append(f"\n[4. PARTICLE FILTER]")
+    debug_log_lines.append(f"  Previous position: ({positions['particle']['x']:.3f}, {positions['particle']['y']:.3f})")
+    debug_log_lines.append(f"  Input heading: {np.degrees(yaw):.2f}° ({yaw:.4f} rad)")
+    debug_log_lines.append(f"  Input stride length: {STRIDE_LENGTH:.2f}m")
     particle_filter.update_stride(STRIDE_LENGTH, yaw)
     particle_pos = particle_filter.get_position()
     positions['particle'] = {'x': round(particle_pos[0], 3), 'y': round(particle_pos[1], 3)}
+    debug_log_lines.append(f"  New position (weighted average): ({positions['particle']['x']:.3f}, {positions['particle']['y']:.3f})")
     trajectories['particle'].append({
         'stride': stride_count,
         'timestamp': datetime.utcnow().isoformat(),
@@ -325,6 +364,28 @@ def process_stride_all_algorithms(yaw):
         'heading': round(np.degrees(yaw), 2),
         'algorithm': 'particle'
     })
+
+    # === COMPARISON SUMMARY ===
+    debug_log_lines.append(f"\n[POSITION COMPARISON]")
+    debug_log_lines.append(f"  Naive:    ({positions['naive']['x']:6.3f}, {positions['naive']['y']:6.3f})")
+    debug_log_lines.append(f"  Bayesian: ({positions['bayesian']['x']:6.3f}, {positions['bayesian']['y']:6.3f})")
+    debug_log_lines.append(f"  Kalman:   ({positions['kalman']['x']:6.3f}, {positions['kalman']['y']:6.3f})")
+    debug_log_lines.append(f"  Particle: ({positions['particle']['x']:6.3f}, {positions['particle']['y']:6.3f})")
+
+    # Calculate deviations from naive
+    debug_log_lines.append(f"\n[DEVIATION FROM NAIVE]")
+    for alg in ['bayesian', 'kalman', 'particle']:
+        dx = positions[alg]['x'] - positions['naive']['x']
+        dy = positions[alg]['y'] - positions['naive']['y']
+        dist = np.sqrt(dx**2 + dy**2)
+        debug_log_lines.append(f"  {alg.capitalize():9s}: Δx={dx:+.3f}, Δy={dy:+.3f}, distance={dist:.3f}m")
+
+    # Write to debug log file
+    try:
+        with open('filters_debug.log', 'a') as f:
+            f.write('\n'.join(debug_log_lines) + '\n')
+    except Exception as e:
+        logger.error(f"Failed to write debug log: {e}")
 
     stride_count += 1
 
@@ -829,6 +890,17 @@ def reset():
     bayesian_filter.reset(x=start_x, y=start_y)
     kalman_filter = KalmanFilter(initial_x=start_x, initial_y=start_y, dt=0.5)
     particle_filter = ParticleFilter(floor_plan, n_particles=200, initial_x=start_x, initial_y=start_y)
+
+    # Clear debug log file
+    try:
+        with open('filters_debug.log', 'w') as f:
+            f.write(f"# Filter Debug Log - Reset at {datetime.utcnow().isoformat()}\n")
+            f.write(f"# Starting position: ({start_x}, {start_y})\n")
+            f.write(f"# Floor plan: 3.5m x 6.0m room with 0.3m walls\n")
+            f.write(f"# Coordinate system: Navigation convention (0°=North, x=sin, y=cos)\n\n")
+        logger.info("[DEBUG] Cleared filters_debug.log")
+    except Exception as e:
+        logger.error(f"Failed to clear debug log: {e}")
 
     sense.clear()
     return jsonify({'success': True})
@@ -1373,5 +1445,14 @@ if __name__ == '__main__':
     # Don't auto-start - wait for user to click START button
     logger.info("\n⏸️  Stride detection ready - click START WALKING in dashboard")
     logger.info("=" * 70 + "\n")
+
+    # Initialize debug log file
+    try:
+        with open('filters_debug.log', 'w') as f:
+            f.write(f"# Filter Debug Log - Initialized at {datetime.utcnow().isoformat()}\n")
+            f.write(f"# This file will be populated with detailed filter behavior\n\n")
+        logger.info("✓ Initialized filters_debug.log for detailed filter debugging")
+    except Exception as e:
+        logger.error(f"Failed to initialize debug log: {e}")
 
     app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)

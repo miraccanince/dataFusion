@@ -337,17 +337,25 @@ class BayesianNavigationFilter:
         Returns:
             Estimated position {'x': ..., 'y': ...}
         """
+        debug_log = []
+        debug_log.append(f"  === BAYESIAN FILTER INTERNAL DEBUG ===")
+
         x_prev = self.current_estimate['x']
         y_prev = self.current_estimate['y']
+        debug_log.append(f"  Previous estimate: ({x_prev:.3f}, {y_prev:.3f})")
 
         # IMU prediction (navigation convention: 0°=North, x = sin, y = cos)
         imu_x = x_prev + stride_length * np.sin(heading)
         imu_y = y_prev + stride_length * np.cos(heading)
+        debug_log.append(f"  IMU prediction: ({imu_x:.3f}, {imu_y:.3f})")
+        debug_log.append(f"    Calculation: x = {x_prev:.3f} + {stride_length:.2f} * sin({np.degrees(heading):.2f}°) = {imu_x:.3f}")
+        debug_log.append(f"    Calculation: y = {y_prev:.3f} + {stride_length:.2f} * cos({np.degrees(heading):.2f}°) = {imu_y:.3f}")
 
         # CRITICAL: Check if PATH from current to IMU prediction crosses through wall
         # Sample points along the line segment to detect wall crossing
         n_samples = 10
         path_crosses_wall = False
+        wall_detected_at = None
         for i in range(1, n_samples + 1):
             t = i / n_samples
             sample_x = x_prev + t * (imu_x - x_prev)
@@ -357,16 +365,21 @@ class BayesianNavigationFilter:
             # If any point along path has very low probability, it's a wall
             if sample_prob < 0.1:  # Wall threshold
                 path_crosses_wall = True
+                wall_detected_at = (sample_x, sample_y)
+                debug_log.append(f"  Wall detected at ({sample_x:.3f}, {sample_y:.3f}) - probability: {sample_prob:.3f}")
                 break
 
         if path_crosses_wall:
             # Path would cross wall - start optimization from safe current position
             x0 = [x_prev, y_prev]
+            debug_log.append(f"  Initial guess: ({x0[0]:.3f}, {x0[1]:.3f}) [SAFE - staying at current position]")
         else:
             # Path is clear - start from IMU prediction (normal case)
             x0 = [imu_x, imu_y]
+            debug_log.append(f"  Initial guess: ({x0[0]:.3f}, {x0[1]:.3f}) [IMU prediction - path clear]")
 
         # Mode-seeking: Find maximum of posterior (minimize negative posterior)
+        debug_log.append(f"  Running L-BFGS-B optimization...")
         result = minimize(
             self.negative_posterior,
             x0,
@@ -377,6 +390,24 @@ class BayesianNavigationFilter:
 
         # Extract estimate
         x_est, y_est = result.x
+        debug_log.append(f"  Optimization result:")
+        debug_log.append(f"    Success: {result.success}")
+        debug_log.append(f"    Iterations: {result.nit if hasattr(result, 'nit') else 'N/A'}")
+        debug_log.append(f"    Optimized position: ({x_est:.3f}, {y_est:.3f})")
+        debug_log.append(f"    Negative posterior: {result.fun:.6f}")
+
+        # Calculate actual displacement
+        dx = x_est - x_prev
+        dy = y_est - y_prev
+        actual_distance = np.sqrt(dx**2 + dy**2)
+        expected_distance = stride_length
+        debug_log.append(f"    Actual displacement: Δx={dx:.3f}, Δy={dy:.3f}, distance={actual_distance:.3f}m")
+        debug_log.append(f"    Expected displacement: {expected_distance:.3f}m")
+        debug_log.append(f"    Difference: {actual_distance - expected_distance:.3f}m")
+
+        # Calculate floor plan probability at result
+        result_prob = self.floor_plan.get_probability(x_est, y_est)
+        debug_log.append(f"    Floor plan probability at result: {result_prob:.4f}")
 
         # Update current estimate
         self.current_estimate = {'x': float(x_est), 'y': float(y_est)}
@@ -391,6 +422,13 @@ class BayesianNavigationFilter:
         # Keep only last 10 positions
         if len(self.position_history) > 10:
             self.position_history.pop(0)
+
+        # Write debug log to file
+        try:
+            with open('filters_debug.log', 'a') as f:
+                f.write('\n'.join(debug_log) + '\n')
+        except Exception:
+            pass
 
         return self.current_estimate
 
