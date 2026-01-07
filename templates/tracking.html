@@ -178,12 +178,12 @@
                 <div style="display: flex; gap: 10px; align-items: end;">
                     <div style="flex: 1;">
                         <label style="display: block; font-size: 11px; margin-bottom: 3px; opacity: 0.9;">X (m):</label>
-                        <input type="number" id="startX" value="2.0" min="0" max="10" step="0.1"
+                        <input type="number" id="startX" value="1.75" min="0" max="3.5" step="0.1"
                                style="width: 100%; padding: 6px; border: none; border-radius: 4px; font-size: 14px;">
                     </div>
                     <div style="flex: 1;">
                         <label style="display: block; font-size: 11px; margin-bottom: 3px; opacity: 0.9;">Y (m):</label>
-                        <input type="number" id="startY" value="4.0" min="0" max="10" step="0.1"
+                        <input type="number" id="startY" value="3.0" min="0" max="6.0" step="0.1"
                                style="width: 100%; padding: 6px; border: none; border-radius: 4px; font-size: 14px;">
                     </div>
                     <button onclick="updateStartPosition()"
@@ -771,7 +771,7 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: true,
-                    aspectRatio: 1,
+                    aspectRatio: 0.6,  // Adjusted for 3.5:6 ratio (width:height)
                     scales: {
                         x: {
                             type: 'linear',
@@ -783,8 +783,8 @@
                                 color: '#2c5282'
                             },
                             min: 0,
-                            max: 10,
-                            ticks: { stepSize: 1 },
+                            max: 3.5,  // Updated to match room width
+                            ticks: { stepSize: 0.5 },  // Smaller steps for smaller room
                             grid: {
                                 color: 'rgba(0, 0, 0, 0.15)',
                                 lineWidth: 1
@@ -798,8 +798,8 @@
                                 color: '#2c5282'
                             },
                             min: 0,
-                            max: 10,
-                            ticks: { stepSize: 1 },
+                            max: 6.0,  // Updated to match room height
+                            ticks: { stepSize: 0.5 },  // Smaller steps for smaller room
                             grid: {
                                 color: 'rgba(0, 0, 0, 0.15)',
                                 lineWidth: 1
@@ -1122,8 +1122,8 @@
 
             console.log(`[UPDATE START] Attempting to set position to (${x}, ${y})`);
 
-            if (x < 0 || x > 10 || y < 0 || y > 10) {
-                alert('Position must be between 0 and 10 meters!');
+            if (x < 0 || x > 3.5 || y < 0 || y > 6.0) {
+                alert('Position must be within room bounds!\nX: 0-3.5 meters\nY: 0-6.0 meters');
                 console.error('[UPDATE START] Invalid coordinates');
                 return;
             }

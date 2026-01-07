@@ -31,13 +31,13 @@ class FloorPlanPDF:
     probability and walls/obstacles have low probability.
     """
 
-    def __init__(self, width_m=20.0, height_m=10.0, resolution=0.1):
+    def __init__(self, width_m=3.5, height_m=6.0, resolution=0.1):
         """
         Initialize floor plan PDF
 
         Args:
-            width_m: Width in meters
-            height_m: Height in meters
+            width_m: Width in meters (default 3.5m)
+            height_m: Height in meters (default 6.0m)
             resolution: Grid resolution in meters (default 0.1m = 10cm)
         """
         self.width_m = width_m
@@ -56,39 +56,35 @@ class FloorPlanPDF:
 
     def _create_simple_floor_plan(self):
         """
-        Create a square room with a wall in the middle
+        Create a single rectangular room (3.5m x 6m)
 
-        Layout (10m x 10m):
+        Layout:
         ######################
-        ##        |         ##
-        ##  Room  |  Room   ##
-        ##    1   |    2    ##
-        ##        |         ##
+        ##                  ##
+        ##                  ##
+        ##   Single Room    ##
+        ##   3.5m x 6m      ##
+        ##                  ##
+        ##                  ##
         ######################
         """
         grid = np.zeros((self.grid_height, self.grid_width))
 
-        # Create entire square room (all walkable)
-        wall_thickness = 0.5  # meters
-        margin = 1.0  # 1m from edges
+        # Create single rectangular room (all walkable, no internal walls)
+        wall_thickness = 0.2  # meters (outer wall thickness)
 
-        # Room boundaries
+        # Use smaller margin for the small room
+        margin = wall_thickness  # Margin equals wall thickness
+
+        # Room boundaries (walkable area)
         x_start = int(margin / self.resolution)
         x_end = int((self.width_m - margin) / self.resolution)
         y_start = int(margin / self.resolution)
         y_end = int((self.height_m - margin) / self.resolution)
 
-        # Fill entire room as walkable
+        # Fill entire room as walkable (probability = 1.0)
+        # NO internal walls - just one open room
         grid[y_start:y_end, x_start:x_end] = 1.0
-
-        # Add vertical wall in the middle
-        wall_cells = int(wall_thickness / self.resolution)
-        wall_x_center = int(self.width_m / 2.0 / self.resolution)
-        wall_x_start = wall_x_center - wall_cells // 2
-        wall_x_end = wall_x_start + wall_cells
-
-        # Wall divides the room vertically (from bottom to top)
-        grid[y_start:y_end, wall_x_start:wall_x_end] = 0.0
 
         # Apply Gaussian smoothing to create gradient at walls
         # Use smaller sigma for sharper boundaries (prevents oscillation)

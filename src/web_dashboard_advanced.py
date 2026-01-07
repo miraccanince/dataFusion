@@ -117,10 +117,10 @@ kalman_state = {
 
 # Initialize floor plan and all filters
 logger.info("Initializing filters...")
-floor_plan = FloorPlanPDF(width_m=10.0, height_m=10.0, resolution=0.1)
+floor_plan = FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)  # Updated to match new room size
 bayesian_filter = BayesianNavigationFilter(floor_plan, stride_length=STRIDE_LENGTH)
-kalman_filter = KalmanFilter(initial_x=2.0, initial_y=4.0, dt=0.5)
-particle_filter = ParticleFilter(floor_plan, n_particles=200, initial_x=2.0, initial_y=4.0)
+kalman_filter = KalmanFilter(initial_x=1.75, initial_y=3.0, dt=0.5)  # Center of new room
+particle_filter = ParticleFilter(floor_plan, n_particles=200, initial_x=1.75, initial_y=3.0)  # Center of new room
 logger.info("✓ All filters ready! (Bayesian, Kalman, Particle)")
 
 # MQTT Control State
