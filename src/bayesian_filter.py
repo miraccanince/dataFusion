@@ -91,11 +91,17 @@ class FloorPlanPDF:
         grid[y_start:y_end, wall_x_start:wall_x_end] = 0.0
 
         # Apply Gaussian smoothing to create gradient at walls
+        # Use smaller sigma for sharper boundaries (prevents oscillation)
         from scipy.ndimage import gaussian_filter
-        grid = gaussian_filter(grid, sigma=2.0)
+        grid = gaussian_filter(grid, sigma=1.0)  # Reduced from 2.0 to 1.0
 
         # Normalize to [0.01, 1.0] range (walls get small but non-zero probability)
-        grid = 0.01 + 0.99 * (grid / np.max(grid))
+        # Add small epsilon before normalization to preserve true zeros
+        grid_max = np.max(grid)
+        if grid_max > 0:
+            grid = 0.01 + 0.99 * (grid / grid_max)
+        else:
+            grid = 0.01 * np.ones_like(grid)
 
         return grid
 
@@ -170,7 +176,10 @@ class BayesianNavigationFilter:
         self.sigma_motion = 0.5  # Motion model uncertainty (meters)
 
         # Floor plan weight (higher = stronger wall constraints)
-        self.floor_plan_weight = 50.0  # Strong wall avoidance - Bayesian filter's key advantage!
+        # CRITICAL: Must be EXTREMELY high to prevent wall crossing when IMU points through wall
+        # With weight=1000: wall penalty = 1000*log(0.019) ≈ -3900 (MASSIVE)
+        # This creates an impenetrable energy barrier at walls
+        self.floor_plan_weight = 1000.0  # EXTREMELY strong - walls are HARD constraints!
 
     def p_stride_circle(self, x, y, x_prev, y_prev, stride_length):
         """
@@ -248,7 +257,8 @@ class BayesianNavigationFilter:
         """
         p(xk-1|Zk-1): Previous posterior estimate
 
-        Gaussian around previous estimate
+        Weak Gaussian around previous estimate to provide continuity
+        but not fight the floor plan constraints.
 
         Args:
             x, y: Candidate position
@@ -258,8 +268,12 @@ class BayesianNavigationFilter:
         """
         mean = np.array([self.current_estimate['x'], self.current_estimate['y']])
 
+        # Use VERY large covariance (weak constraint) to avoid rubber-band effect
+        # This just provides gentle continuity without fighting wall constraints
+        weak_cov = np.eye(2) * 2.0  # Large uncertainty (2m std dev)
+
         try:
-            prob = multivariate_normal.pdf([x, y], mean=mean, cov=self.current_covariance)
+            prob = multivariate_normal.pdf([x, y], mean=mean, cov=weak_cov)
         except:
             prob = 1e-10
 
@@ -326,9 +340,31 @@ class BayesianNavigationFilter:
         x_prev = self.current_estimate['x']
         y_prev = self.current_estimate['y']
 
-        # Initial guess (IMU prediction, standard math: x = cos, y = sin)
-        x0 = [x_prev + stride_length * np.cos(heading),
-              y_prev + stride_length * np.sin(heading)]
+        # IMU prediction (standard math: x = cos, y = sin)
+        imu_x = x_prev + stride_length * np.cos(heading)
+        imu_y = y_prev + stride_length * np.sin(heading)
+
+        # CRITICAL: Check if PATH from current to IMU prediction crosses through wall
+        # Sample points along the line segment to detect wall crossing
+        n_samples = 10
+        path_crosses_wall = False
+        for i in range(1, n_samples + 1):
+            t = i / n_samples
+            sample_x = x_prev + t * (imu_x - x_prev)
+            sample_y = y_prev + t * (imu_y - y_prev)
+            sample_prob = self.floor_plan.get_probability(sample_x, sample_y)
+
+            # If any point along path has very low probability, it's a wall
+            if sample_prob < 0.1:  # Wall threshold
+                path_crosses_wall = True
+                break
+
+        if path_crosses_wall:
+            # Path would cross wall - start optimization from safe current position
+            x0 = [x_prev, y_prev]
+        else:
+            # Path is clear - start from IMU prediction (normal case)
+            x0 = [imu_x, imu_y]
 
         # Mode-seeking: Find maximum of posterior (minimize negative posterior)
         result = minimize(

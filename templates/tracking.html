@@ -638,6 +638,65 @@
                 ctx.font = 'bold 12px sans-serif';
                 ctx.fillText('START', startX, startY - 15);
 
+                // Draw compass rose in top-right corner
+                const compassX = x.getPixelForValue(9.2);
+                const compassY = y.getPixelForValue(9.2);
+                const compassSize = 25;
+
+                // Compass circle background
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.beginPath();
+                ctx.arc(compassX, compassY, compassSize, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#2c5282';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // North arrow (pointing up)
+                ctx.fillStyle = '#e53e3e';
+                ctx.beginPath();
+                ctx.moveTo(compassX, compassY - compassSize + 5);  // Top point
+                ctx.lineTo(compassX - 6, compassY);  // Left base
+                ctx.lineTo(compassX + 6, compassY);  // Right base
+                ctx.closePath();
+                ctx.fill();
+
+                // South arrow (pointing down)
+                ctx.fillStyle = '#718096';
+                ctx.beginPath();
+                ctx.moveTo(compassX, compassY + compassSize - 5);  // Bottom point
+                ctx.lineTo(compassX - 6, compassY);  // Left base
+                ctx.lineTo(compassX + 6, compassY);  // Right base
+                ctx.closePath();
+                ctx.fill();
+
+                // East arrow (pointing right)
+                ctx.fillStyle = '#718096';
+                ctx.beginPath();
+                ctx.moveTo(compassX + compassSize - 5, compassY);  // Right point
+                ctx.lineTo(compassX, compassY - 6);  // Top base
+                ctx.lineTo(compassX, compassY + 6);  // Bottom base
+                ctx.closePath();
+                ctx.fill();
+
+                // West arrow (pointing left)
+                ctx.fillStyle = '#718096';
+                ctx.beginPath();
+                ctx.moveTo(compassX - compassSize + 5, compassY);  // Left point
+                ctx.lineTo(compassX, compassY - 6);  // Top base
+                ctx.lineTo(compassX, compassY + 6);  // Bottom base
+                ctx.closePath();
+                ctx.fill();
+
+                // Labels
+                ctx.fillStyle = '#1a202c';
+                ctx.font = 'bold 14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('N', compassX, compassY - compassSize - 8);
+                ctx.fillText('S', compassX, compassY + compassSize + 16);
+                ctx.fillText('E', compassX + compassSize + 10, compassY + 5);
+                ctx.fillText('W', compassX - compassSize - 10, compassY + 5);
+
                 ctx.restore();
             }
         };
@@ -719,8 +778,9 @@
                             position: 'bottom',
                             title: {
                                 display: true,
-                                text: 'X Position (meters)',
-                                font: { size: 14, weight: 'bold' }
+                                text: 'X Position (meters)  ←  WEST    |    EAST  →',
+                                font: { size: 14, weight: 'bold' },
+                                color: '#2c5282'
                             },
                             min: 0,
                             max: 10,
@@ -733,8 +793,9 @@
                         y: {
                             title: {
                                 display: true,
-                                text: 'Y Position (meters)',
-                                font: { size: 14, weight: 'bold' }
+                                text: '↑  NORTH    |    Y Position (meters)    |    SOUTH  ↓',
+                                font: { size: 14, weight: 'bold' },
+                                color: '#2c5282'
                             },
                             min: 0,
                             max: 10,
