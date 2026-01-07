@@ -100,13 +100,6 @@ latest_imu = {
     'yaw': 0.0
 }
 
-# Sensor data buffers (last 50 readings)
-sensor_buffer = {
-    'raw': deque(maxlen=50),
-    'filtered': deque(maxlen=50),
-    'timestamps': deque(maxlen=50)
-}
-
 # Simple Kalman filter state
 kalman_state = {
     'yaw': 0.0,
@@ -465,80 +458,6 @@ def joystick_walk_monitor():
 def index():
     return render_template('tracking.html')
 
-@app.route('/api/sensors/raw')
-def get_raw_sensors():
-    """Get RAW sensor readings"""
-    global latest_imu
-
-    accel = sense.get_accelerometer_raw()
-    gyro = sense.get_gyroscope_raw()
-    mag = sense.get_compass_raw()
-    orientation = sense.get_orientation_degrees()
-
-    # Update latest IMU readings
-    latest_imu = {
-        'roll': round(orientation.get('roll', 0), 1),
-        'pitch': round(orientation.get('pitch', 0), 1),
-        'yaw': round(orientation.get('yaw', 0), 1)
-    }
-
-    timestamp = datetime.utcnow().isoformat()
-
-    data = {
-        'timestamp': timestamp,
-        'accelerometer': accel,
-        'gyroscope': gyro,
-        'magnetometer': mag,
-        'orientation': orientation,
-        'temperature': round(sense.get_temperature(), 2)
-    }
-
-    # Store in buffer
-    sensor_buffer['raw'].append(data)
-    sensor_buffer['timestamps'].append(timestamp)
-
-    return jsonify(data)
-
-@app.route('/api/sensors/filtered')
-def get_filtered_sensors():
-    """Get FILTERED sensor readings"""
-    # Get raw data
-    accel = sense.get_accelerometer_raw()
-    gyro = sense.get_gyroscope_raw()
-    orientation = sense.get_orientation_radians()
-
-    # Apply Kalman filter to yaw
-    raw_yaw = orientation.get('yaw', 0)
-    filtered_yaw = simple_kalman_filter(raw_yaw, kalman_state)
-
-    # Simple moving average for accelerometer
-    accel_filtered = {
-        'x': round(accel['x'], 4),
-        'y': round(accel['y'], 4),
-        'z': round(accel['z'], 4)
-    }
-
-    data = {
-        'timestamp': datetime.utcnow().isoformat(),
-        'yaw_raw': round(np.degrees(raw_yaw), 2),
-        'yaw_filtered': round(np.degrees(filtered_yaw), 2),
-        'accelerometer': accel_filtered,
-        'gyroscope': gyro
-    }
-
-    sensor_buffer['filtered'].append(data)
-
-    return jsonify(data)
-
-@app.route('/api/sensors/comparison')
-def get_sensor_comparison():
-    """Get comparison of raw vs filtered sensors over time"""
-    return jsonify({
-        'raw_buffer': list(sensor_buffer['raw']),
-        'filtered_buffer': list(sensor_buffer['filtered']),
-        'timestamps': list(sensor_buffer['timestamps'])
-    })
-
 @app.route('/api/stride/<algorithm>', methods=['POST'])
 def record_stride(algorithm):
     """Record a stride using specified algorithm"""
@@ -592,10 +511,10 @@ def record_stride(algorithm):
         })
 
     elif algorithm == 'particle':
-        # TODO: Implement particle filter (placeholder)
-        new_x = positions['particle']['x'] + STRIDE_LENGTH * np.cos(yaw)
-        new_y = positions['particle']['y'] + STRIDE_LENGTH * np.sin(yaw)
-        positions['particle'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
+        # PARTICLE FILTER: Multiple hypotheses with floor plan resampling
+        particle_filter.update_stride(STRIDE_LENGTH, yaw)
+        particle_pos = particle_filter.get_position()
+        positions['particle'] = {'x': round(particle_pos[0], 3), 'y': round(particle_pos[1], 3)}
 
         trajectories['particle'].append({
             'stride': stride_count,
@@ -644,28 +563,6 @@ def set_ground_truth():
         'note': data.get('note', '')
     })
     return jsonify({'success': True})
-
-@app.route('/api/errors')
-def get_errors():
-    """Calculate errors compared to ground truth"""
-    if not trajectories['ground_truth']:
-        return jsonify({'error': 'No ground truth data'})
-
-    # Get latest ground truth
-    gt = trajectories['ground_truth'][-1]
-
-    errors = {}
-    for algo in ['naive', 'bayesian', 'particle']:
-        if trajectories[algo]:
-            latest = trajectories[algo][-1]
-            error = np.sqrt((latest['x'] - gt['x'])**2 + (latest['y'] - gt['y'])**2)
-            errors[algo] = {
-                'distance_error': round(error, 3),
-                'x_error': round(abs(latest['x'] - gt['x']), 3),
-                'y_error': round(abs(latest['y'] - gt['y']), 3)
-            }
-
-    return jsonify(errors)
 
 @app.route('/api/connection_status')
 def connection_status():
@@ -887,9 +784,6 @@ def reset():
         'particle': [],
         'ground_truth': []
     }
-    sensor_buffer['raw'].clear()
-    sensor_buffer['filtered'].clear()
-    sensor_buffer['timestamps'].clear()
 
     # Reset all filters to start position
     bayesian_filter.reset(x=start_x, y=start_y)

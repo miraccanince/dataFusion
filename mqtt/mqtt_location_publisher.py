@@ -60,7 +60,7 @@ class LocationPublisher:
 
         # Initialize Bayesian filter
         print("Initializing Bayesian filter...")
-        self.floor_plan = FloorPlanPDF(width_m=20.0, height_m=10.0, resolution=0.1)
+        self.floor_plan = FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
         self.bayesian_filter = BayesianNavigationFilter(
             self.floor_plan,
             stride_length=stride_length

@@ -1031,11 +1031,6 @@
                         document.getElementById('imuRoll').textContent = data.imu.roll.toFixed(1);
                         document.getElementById('imuPitch').textContent = data.imu.pitch.toFixed(1);
                         document.getElementById('imuYaw').textContent = data.imu.yaw.toFixed(1);
-
-                        // Determine direction from yaw
-                        const yaw = data.imu.yaw;
-                        const direction = getDirectionFromYaw(yaw);
-                        document.getElementById('imuDirection').textContent = `(${direction})`;
                     }
                 })
                 .catch(err => console.error('[IMU UPDATE] Error:', err));
