@@ -56,7 +56,7 @@ class FloorPlanPDF:
 
     def _create_simple_floor_plan(self):
         """
-        Create a single rectangular room (3.5m x 6m)
+        Create a single rectangular room (3.5m x 6m) with 4 walls
 
         Layout:
         ######################
@@ -67,36 +67,46 @@ class FloorPlanPDF:
         ##                  ##
         ##                  ##
         ######################
+
+        Grid starts as all zeros (walls everywhere).
+        We carve out a walkable rectangle in the middle.
+        The surrounding zeros form the 4 walls.
         """
-        grid = np.zeros((self.grid_height, self.grid_width))
+        # Start with all zeros = walls everywhere (very low probability)
+        grid = np.ones((self.grid_height, self.grid_width)) * 0.01
 
-        # Create single rectangular room (all walkable, no internal walls)
-        wall_thickness = 0.2  # meters (outer wall thickness)
+        # Define wall thickness and walkable area
+        wall_thickness = 0.3  # meters (thicker walls for clear boundaries)
 
-        # Use smaller margin for the small room
-        margin = wall_thickness  # Margin equals wall thickness
+        # Calculate walkable area boundaries (leave space for walls on all 4 sides)
+        x_start = int(wall_thickness / self.resolution)
+        x_end = int((self.width_m - wall_thickness) / self.resolution)
+        y_start = int(wall_thickness / self.resolution)
+        y_end = int((self.height_m - wall_thickness) / self.resolution)
 
-        # Room boundaries (walkable area)
-        x_start = int(margin / self.resolution)
-        x_end = int((self.width_m - margin) / self.resolution)
-        y_start = int(margin / self.resolution)
-        y_end = int((self.height_m - margin) / self.resolution)
+        # Ensure indices are within grid bounds
+        x_start = max(0, x_start)
+        x_end = min(self.grid_width, x_end)
+        y_start = max(0, y_start)
+        y_end = min(self.grid_height, y_end)
 
-        # Fill entire room as walkable (probability = 1.0)
-        # NO internal walls - just one open room
+        # Fill walkable area with high probability (1.0)
+        # This creates a rectangle surrounded by walls on all 4 sides
         grid[y_start:y_end, x_start:x_end] = 1.0
 
-        # Apply Gaussian smoothing to create gradient at walls
-        # Use smaller sigma for sharper boundaries (prevents oscillation)
+        # Apply Gaussian smoothing to create smooth gradient at wall boundaries
+        # This prevents hard edges that can cause filter oscillation
         from scipy.ndimage import gaussian_filter
-        grid = gaussian_filter(grid, sigma=1.0)  # Reduced from 2.0 to 1.0
+        grid = gaussian_filter(grid, sigma=1.5)
 
-        # Normalize to [0.01, 1.0] range (walls get small but non-zero probability)
-        # Add small epsilon before normalization to preserve true zeros
+        # Re-normalize to ensure walls stay low probability and room stays high
+        grid_min = np.min(grid)
         grid_max = np.max(grid)
-        if grid_max > 0:
-            grid = 0.01 + 0.99 * (grid / grid_max)
+        if grid_max > grid_min:
+            # Map to [0.01, 1.0] range
+            grid = 0.01 + 0.99 * (grid - grid_min) / (grid_max - grid_min)
         else:
+            # Fallback: uniform low probability
             grid = 0.01 * np.ones_like(grid)
 
         return grid

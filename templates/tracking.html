@@ -66,7 +66,7 @@
 
         .chart-wrapper {
             position: relative;
-            height: 600px;
+            height: 700px;  /* Increased height to better accommodate 3.5m x 6m room */
             width: 100%;
         }
 
@@ -770,8 +770,7 @@
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: true,
-                    aspectRatio: 0.6,  // Adjusted for 3.5:6 ratio (width:height)
+                    maintainAspectRatio: false,  // Allow flexible sizing for better display
                     scales: {
                         x: {
                             type: 'linear',
