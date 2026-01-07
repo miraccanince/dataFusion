@@ -859,12 +859,13 @@
 
                         // Show confirmation alert
                         alert('🕹️ Joystick Mode Started!\n\n' +
-                              'HOW TO USE:\n' +
-                              '1. Walk one stride in ANY direction\n' +
-                              '2. Press MIDDLE button (push down joystick)\n' +
-                              '3. Direction detected from Pi orientation (compass)\n\n' +
-                              'This simulates realistic pedestrian navigation!\n' +
-                              'Rotate the Pi to face your walking direction.\n\n' +
+                              'HOW TO USE - TILT THE PI:\n' +
+                              '📱 Tilt FORWARD (pitch) = Walk forward\n' +
+                              '📱 Tilt BACKWARD = Walk backward\n' +
+                              '📱 Tilt LEFT (roll) = Walk left\n' +
+                              '📱 Tilt RIGHT = Walk right\n\n' +
+                              'THEN: Press MIDDLE button to count stride!\n\n' +
+                              'Direction combines tilt + compass heading.\n' +
                               'Watch LED arrows and map update in real-time!');
 
                         console.log('[START JOYSTICK] ✓ Joystick mode successfully started');

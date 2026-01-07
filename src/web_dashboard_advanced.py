@@ -174,16 +174,17 @@ def simple_kalman_filter(measurement, state):
 
 def determine_walking_direction_from_imu():
     """
-    Determine walking direction from IMU roll/pitch/yaw
+    Determine walking direction from IMU TILT (roll/pitch) + base heading (yaw)
 
-    Uses the Pi's orientation to determine which direction the person is walking:
-    - Yaw (compass heading): Which direction you're facing (0°=East, 90°=North, 180°=West, 270°=South)
-    - Roll: Tilt left/right (not used for direction, but logged for debugging)
-    - Pitch: Tilt forward/backward (not used for direction, but logged for debugging)
+    INTUITIVE CONTROLS - User tilts Pi to indicate walking direction:
+    - Pitch > +15° (tilt forward) → Walk in direction Pi is pointing (yaw)
+    - Pitch < -15° (tilt backward) → Walk opposite direction (yaw + 180°)
+    - Roll > +15° (tilt right) → Walk 90° right of Pi direction (yaw - 90°)
+    - Roll < -15° (tilt left) → Walk 90° left of Pi direction (yaw + 90°)
 
     Returns:
         heading_radians: The walking direction in radians (standard math: 0=East, π/2=North, etc.)
-        heading_description: Human-readable direction (e.g., "North", "Northeast", etc.)
+        heading_description: Human-readable direction (e.g., "North", "Forward", etc.)
     """
     try:
         # Get current orientation
@@ -195,37 +196,43 @@ def determine_walking_direction_from_imu():
         yaw_rad = orientation_rad.get('yaw', 0)
         yaw_deg = orientation_deg.get('yaw', 0)
 
-        # Determine cardinal/intercardinal direction from yaw
-        # Standard compass: 0°=North, 90°=East, 180°=South, 270°=West
-        # BUT we need to convert to math convention: 0=East, 90°=North, 180°=West, 270°=South
-        # Conversion: math_angle = 90° - compass_angle
+        # Tilt threshold (degrees) - user must tilt at least this much
+        TILT_THRESHOLD = 15.0
 
-        # Normalize yaw to 0-360
-        yaw_normalized = yaw_deg % 360
+        # Determine walking direction based on TILT (roll/pitch)
+        # Priority: pitch (forward/back) takes precedence over roll (left/right)
 
-        # Determine direction label
-        if 337.5 <= yaw_normalized or yaw_normalized < 22.5:
-            direction = "North"
-        elif 22.5 <= yaw_normalized < 67.5:
-            direction = "Northeast"
-        elif 67.5 <= yaw_normalized < 112.5:
-            direction = "East"
-        elif 112.5 <= yaw_normalized < 157.5:
-            direction = "Southeast"
-        elif 157.5 <= yaw_normalized < 202.5:
-            direction = "South"
-        elif 202.5 <= yaw_normalized < 247.5:
-            direction = "Southwest"
-        elif 267.5 <= yaw_normalized < 292.5:
-            direction = "West"
-        elif 292.5 <= yaw_normalized < 337.5:
-            direction = "Northwest"
+        if abs(pitch) > TILT_THRESHOLD:
+            # FORWARD or BACKWARD based on pitch
+            if pitch > 0:
+                # Tilted forward → walk in direction Pi is pointing
+                heading_rad = yaw_rad
+                direction = f"Forward ({yaw_deg:.0f}°)"
+            else:
+                # Tilted backward → walk opposite direction
+                heading_rad = (yaw_rad + np.pi) % (2 * np.pi)
+                direction = f"Backward ({((yaw_deg + 180) % 360):.0f}°)"
+
+        elif abs(roll) > TILT_THRESHOLD:
+            # LEFT or RIGHT based on roll
+            if roll > 0:
+                # Tilted right → walk 90° clockwise from facing direction
+                heading_rad = (yaw_rad - np.pi/2) % (2 * np.pi)
+                direction = f"Right ({((yaw_deg - 90) % 360):.0f}°)"
+            else:
+                # Tilted left → walk 90° counter-clockwise from facing direction
+                heading_rad = (yaw_rad + np.pi/2) % (2 * np.pi)
+                direction = f"Left ({((yaw_deg + 90) % 360):.0f}°)"
+
         else:
-            direction = "Unknown"
+            # No significant tilt → default to facing direction
+            heading_rad = yaw_rad
+            direction = f"Forward (no tilt, {yaw_deg:.0f}°)"
+            logger.warning(f"   [IMU] No significant tilt detected! Roll={roll:.1f}°, Pitch={pitch:.1f}°")
 
         logger.info(f"   [IMU] Roll={roll:.1f}°, Pitch={pitch:.1f}°, Yaw={yaw_deg:.1f}° → Walking {direction}")
 
-        return yaw_rad, direction
+        return heading_rad, direction
 
     except Exception as e:
         logger.error(f"Error reading IMU orientation: {e}")
