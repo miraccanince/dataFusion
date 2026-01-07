@@ -102,6 +102,7 @@ latest_imu = {
 
 # IMU calibration: Store initial yaw as reference (0° = starting direction)
 initial_yaw_reference = None  # Set when user starts walking
+previous_absolute_yaw = None  # Track previous yaw to detect device rotation
 
 # Simple Kalman filter state
 kalman_state = {
@@ -244,7 +245,7 @@ def determine_walking_direction_from_imu():
 
 def process_stride_all_algorithms(yaw):
     """Process a detected stride for all algorithms"""
-    global stride_count, latest_imu
+    global stride_count, latest_imu, previous_absolute_yaw
 
     # === DEBUG LOG HEADER ===
     debug_log_lines = []
@@ -260,6 +261,32 @@ def process_stride_all_algorithms(yaw):
 
         yaw_absolute_deg = orientation_deg.get('yaw', 0)
         yaw_absolute_rad = orientation_rad.get('yaw', 0)
+
+        # === HEADING STABILITY CHECK ===
+        # Warn if device is rotating significantly between strides
+        if previous_absolute_yaw is not None:
+            # Calculate angular difference (accounting for 360° wraparound)
+            yaw_change = abs(yaw_absolute_deg - previous_absolute_yaw)
+            if yaw_change > 180:  # Handle wraparound (359° to 1° is only 2° change, not 358°)
+                yaw_change = 360 - yaw_change
+
+            # If heading changed more than 30°, warn user
+            if yaw_change > 30:
+                warning_msg = (
+                    f"\n⚠️  WARNING: Device rotated {yaw_change:.1f}° since last stride!\n"
+                    f"    Previous: {previous_absolute_yaw:.1f}° → Current: {yaw_absolute_deg:.1f}°\n"
+                    f"    This will cause trajectory errors.\n"
+                    f"    Keep the Pi pointing in your walking direction!\n"
+                )
+                print(warning_msg)  # Print to console for immediate visibility
+                debug_log_lines.append(f"\n[⚠️  HEADING STABILITY WARNING]")
+                debug_log_lines.append(f"  Device rotation detected: {yaw_change:.1f}° change")
+                debug_log_lines.append(f"  Previous absolute yaw: {previous_absolute_yaw:.2f}°")
+                debug_log_lines.append(f"  Current absolute yaw: {yaw_absolute_deg:.2f}°")
+                debug_log_lines.append(f"  → Your trajectory will be RANDOM if you keep rotating the Pi!")
+
+        # Update previous yaw for next check
+        previous_absolute_yaw = yaw_absolute_deg
 
         # Calculate relative yaw for display
         if initial_yaw_reference is not None:
@@ -872,10 +899,11 @@ def mock_test():
 @app.route('/api/reset', methods=['POST'])
 def reset():
     """Reset all data"""
-    global stride_count, positions, trajectories, bayesian_filter, kalman_filter, particle_filter, initial_yaw_reference
+    global stride_count, positions, trajectories, bayesian_filter, kalman_filter, particle_filter, initial_yaw_reference, previous_absolute_yaw
 
     stride_count = 0
     initial_yaw_reference = None  # Reset calibration
+    previous_absolute_yaw = None  # Reset heading stability tracking
     start_x, start_y = 1.75, 3.0  # Center of 3.5m x 6.0m room
 
     positions = {

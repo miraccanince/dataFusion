@@ -944,10 +944,22 @@
                         }
 
                         alertMsg += 'HOW TO USE:\n';
+                        alertMsg += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+                        alertMsg += '⚠️ CRITICAL: Device Orientation!\n\n';
                         alertMsg += '📱 Point Pi in the direction you want to walk\n';
+                        alertMsg += '🔒 KEEP IT POINTING THAT WAY - Don\'t rotate!\n';
                         alertMsg += '🔘 Press MIDDLE button to count each stride\n\n';
+                        alertMsg += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+                        alertMsg += '⚠️ Common Mistake:\n';
+                        alertMsg += 'If the Pi rotates between button presses,\n';
+                        alertMsg += 'your trajectory will be RANDOM!\n\n';
+                        alertMsg += 'Example: Walking North\n';
+                        alertMsg += '✓ Keep USB edge pointing North\n';
+                        alertMsg += '✗ Don\'t let Pi spin in your hands\n\n';
+                        alertMsg += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
                         alertMsg += 'Yaw display shows RELATIVE heading (0° = starting direction)\n';
-                        alertMsg += 'Watch LED arrows and map update in real-time!';
+                        alertMsg += 'Watch LED arrows and map update in real-time!\n\n';
+                        alertMsg += 'See DEVICE_ORIENTATION_GUIDE.md for detailed help.';
 
                         alert(alertMsg);
 

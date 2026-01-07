@@ -223,13 +223,112 @@ python3 test_filter_debug.py
 
 ---
 
+## User Education & Guidance
+
+### 11. ✅ Device Orientation Issue Identified and Documented (CRITICAL - USER EDUCATION)
+**Issue**: User experienced chaotic, random-looking trajectories. Debug log analysis revealed the root cause: the Raspberry Pi was being physically rotated dramatically between button presses, causing the IMU to detect wild heading changes.
+
+**User's Symptoms:**
+- Trajectories appeared random with "random angles"
+- All filters (Naive, Bayesian, Kalman, Particle) showed erratic paths
+- No consistent pattern even when user intended to walk straight or in controlled patterns
+
+**Root Cause Analysis:**
+Looking at user's `filters_debug.log`:
+```
+STRIDE #3: Absolute yaw: 126.91°
+STRIDE #4: Absolute yaw: 52.72°   ← Rotated 74° left!
+STRIDE #5: Absolute yaw: 77.10°   ← Rotated 24° right
+STRIDE #6: Absolute yaw: 288.91°  ← Rotated 211°!
+STRIDE #7: Absolute yaw: 198.43°
+```
+
+**Fundamental Problem:**
+- **IMU tracks device orientation**, not user's "intended" walking direction
+- If the Pi rotates in user's hands, the system correctly detects and tracks that rotation
+- User was not maintaining consistent device orientation between strides
+- This is **correct system behavior** but doesn't match user expectations
+
+**Example:** Walking North
+```
+❌ WRONG:
+  User walks North
+  But Pi points: 45° (Northeast) → 120° (Southeast) → 210° (Southwest)
+  Result: Trajectory goes random directions
+
+✓ CORRECT:
+  User walks North
+  Pi points: 0° (North) → 1° (North) → 359° (North)
+  Result: Straight line North
+```
+
+**Solutions Implemented:**
+
+1. **Comprehensive Device Orientation Guide** (`DEVICE_ORIENTATION_GUIDE.md`)
+   - How to hold the Pi correctly
+   - Which edge should point forward (recommendation: USB edge)
+   - Visual diagrams showing correct vs incorrect holding methods
+   - Common mistakes and troubleshooting
+   - Physical analogy: "Pi is like a compass - it shows where it's pointing"
+
+2. **Enhanced UI Warnings** (`templates/tracking.html:946-962`)
+   - More prominent alert message when starting joystick mode
+   - Explicit warning: "⚠️ CRITICAL: Device Orientation!"
+   - Clear instruction: "🔒 KEEP IT POINTING THAT WAY - Don't rotate!"
+   - Common mistake explanation in the alert
+   - Example: "✓ Keep USB edge pointing North"
+
+3. **Real-time Heading Stability Check** (`src/web_dashboard_advanced.py:265-289`)
+   - Tracks `previous_absolute_yaw` between strides
+   - Calculates angular change (accounting for 360° wraparound)
+   - Warns user if device rotates more than 30° between strides
+   - **Console warning** (immediate visibility):
+     ```
+     ⚠️  WARNING: Device rotated 74.2° since last stride!
+         Previous: 126.9° → Current: 52.7°
+         This will cause trajectory errors.
+         Keep the Pi pointing in your walking direction!
+     ```
+   - **Debug log warning** (for post-analysis):
+     ```
+     [⚠️  HEADING STABILITY WARNING]
+       Device rotation detected: 74.2° change
+       Previous absolute yaw: 126.91°
+       Current absolute yaw: 52.72°
+       → Your trajectory will be RANDOM if you keep rotating the Pi!
+     ```
+
+**Files Modified:**
+- **NEW:** `DEVICE_ORIENTATION_GUIDE.md` - Comprehensive user guide
+- `templates/tracking.html` (lines 946-962):
+  - Enhanced "START WALKING" alert message
+  - Added device orientation warnings
+  - Added reference to orientation guide
+- `src/web_dashboard_advanced.py`:
+  - Added `previous_absolute_yaw` global variable (line 105)
+  - Added heading stability check in `process_stride_all_algorithms()` (lines 265-289)
+  - Added `previous_absolute_yaw` reset in `reset()` function (lines 902, 906)
+
+**Impact:**
+- Users will now understand that device orientation matters
+- Real-time warnings when Pi rotates unexpectedly
+- Clear instructions prevent the most common user error
+- Debug log helps diagnose orientation issues post-session
+
+**Key Lesson:**
+The system was working **100% correctly** - it accurately tracked the device's actual orientation. The issue was a **user expectation mismatch**: users expected the system to ignore device rotation and track only their walking displacement. This is fundamentally impossible with an IMU-based system - the IMU can only track what the device is doing, not what the user intends to do.
+
+---
+
 ## Documentation Added
 
 - `COORDINATE_SYSTEM.md` - Reference for navigation convention
 - `CALIBRATION.md` - IMU calibration system documentation
 - `FILTER_DEBUG_GUIDE.md` - How to use filter debug logging
+- `DEBUG_QUICK_START.md` - Quick reference for using debug logs on Pi
+- `DEVICE_ORIENTATION_GUIDE.md` - **NEW** - How to hold and orient the Raspberry Pi correctly
 - `CHANGES.md` - This file
 
 ---
 
-**Status**: ✅ All critical bugs fixed, code cleaned, debug tools added
+**Status**: ✅ All critical bugs fixed, code cleaned, debug tools added, user education improved
