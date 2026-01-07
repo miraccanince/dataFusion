@@ -98,19 +98,10 @@ class FloorPlanPDF:
         # Everything outside this rectangle remains low probability (walls)
         grid[y_start:y_end, x_start:x_end] = 1.0
 
-        # Apply Gaussian smoothing for smooth gradients (prevents filter oscillation)
-        from scipy.ndimage import gaussian_filter
-        grid = gaussian_filter(grid, sigma=1.0)  # Reduced sigma for sharper walls
-
-        # Re-normalize to maintain clear distinction between walls and walkable area
-        grid_min = np.min(grid)
-        grid_max = np.max(grid)
-        if grid_max > grid_min:
-            # Map to [0.01, 1.0] range
-            # This ensures walls stay near 0.01 and walkable areas near 1.0
-            grid = 0.01 + 0.99 * (grid - grid_min) / (grid_max - grid_min)
-        else:
-            grid = 0.01 * np.ones_like(grid)
+        # NO SMOOTHING - Keep sharp binary walls
+        # Walls = 0.01 (1% probability)
+        # Walkable = 1.0 (100% probability)
+        # This creates 4 clean wall lines with no gradient zones
 
         return grid
 
