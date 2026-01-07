@@ -131,6 +131,7 @@ dataFusion/
 │   ├── cpu_publisher.py           # MQTT data generator
 │   ├── windowed_subscriber.py     # Part 1: Windowed sampling
 │   └── bernoulli_subscriber.py    # Part 1: Bernoulli sampling
+├── part2_bayesian_navigation_analysis.ipynb  # Part 2 analysis notebook
 ├── start_dashboard_pi.sh          # Startup script
 └── requirements.txt               # Python dependencies
 ```
@@ -152,7 +153,7 @@ dataFusion/
 - ✅ IMU-based heading estimation
 - ✅ Stride detection via joystick
 - ✅ Filter comparison (Naive, Bayesian, Kalman, Particle)
-- ⚠️ **TODO:** Jupyter notebook with analysis
+- ✅ Jupyter notebook with analysis (part2_bayesian_navigation_analysis.ipynb)
 
 ---
 
