@@ -600,23 +600,17 @@
                             const y1 = y.getPixelForValue(yMeters + resolution);
                             const y2 = y.getPixelForValue(yMeters);
 
-                            // Color based on probability
-                            // Walls (low prob) = dark, Walkable (high prob) = light
+                            // Color based on probability - BINARY rendering (no gradients)
+                            // Walls (prob < 0.15) = dark gray, Walkable (prob >= 0.15) = light
                             let red, green, blue, alpha;
                             if (probability < 0.15) {
-                                // Walls (very low probability) - dark gray
+                                // Walls (prob = 0.01) - dark gray
                                 red = 60;
                                 green = 60;
                                 blue = 60;
                                 alpha = 0.5;
-                            } else if (probability < 0.4) {
-                                // Transition zone near walls - medium gray
-                                red = 120;
-                                green = 120;
-                                blue = 120;
-                                alpha = 0.3;
                             } else {
-                                // Walkable area (high probability) - light blue
+                                // Walkable area (prob = 1.0) - very light blue (almost invisible)
                                 red = 200;
                                 green = 230;
                                 blue = 255;
