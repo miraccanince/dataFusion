@@ -18,8 +18,7 @@ floor_plan = FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
 
 # Initialize filters
 start_x, start_y = 1.75, 3.0
-bayesian_filter = BayesianNavigationFilter(floor_plan)
-bayesian_filter.reset(x=start_x, y=start_y)
+bayesian_filter = BayesianNavigationFilter(floor_plan, initial_x=start_x, initial_y=start_y)
 kalman_filter = KalmanFilter(initial_x=start_x, initial_y=start_y, dt=0.5)
 particle_filter = ParticleFilter(floor_plan, n_particles=200, initial_x=start_x, initial_y=start_y)
 

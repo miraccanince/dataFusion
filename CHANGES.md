@@ -2,7 +2,45 @@
 
 ## Critical Bug Fixes
 
-### 1. ✅ IMU Calibration System Added (CRITICAL - USER REPORTED)
+### 1. ✅ Bayesian Filter Initialization Bug Fixed (CRITICAL - USER REPORTED)
+**Issue**: Bayesian filter's internal state was hardcoded to (2.0, 4.0) instead of using the correct starting position (1.75, 3.0). This caused massive trajectory errors from the very first stride when users started walking without clicking "Reset Tracking" first.
+
+**Example Problem:**
+- External `positions['bayesian']` initialized to `(1.75, 3.0)` ✓
+- Internal `bayesian_filter.current_estimate` hardcoded to `(2.0, 4.0)` ✗
+- First stride: Bayesian moved from wrong starting point, caused 1+ meter error
+- Error compounded with each stride, reaching 12+ meters by stride #21
+
+**Root Cause:**
+- `bayesian_filter.py:175` hardcoded: `self.current_estimate = {'x': 2.0, 'y': 4.0}`
+- `web_dashboard_advanced.py:121` created filter without initial position parameter
+- Kalman and Particle filters received `initial_x` and `initial_y`, but Bayesian didn't
+
+**Fix**: Added `initial_x` and `initial_y` parameters to `BayesianNavigationFilter.__init__()`
+```python
+def __init__(self, floor_plan, stride_length=0.7, n_history=3, initial_x=1.75, initial_y=3.0):
+    # ...
+    self.current_estimate = {'x': initial_x, 'y': initial_y}  # Now uses parameters!
+```
+
+**Files Modified:**
+- `src/bayesian_filter.py`:
+  - Added `initial_x` and `initial_y` parameters to `__init__()` (line 158)
+  - Changed `current_estimate` to use parameters instead of hardcoded values (line 177)
+- `src/web_dashboard_advanced.py`:
+  - Updated global filter initialization to pass `initial_x=1.75, initial_y=3.0` (line 121)
+  - Updated set_start_position endpoint to pass initial position (line 709)
+- `mqtt/mqtt_location_publisher.py`:
+  - Updated filter initialization to pass `initial_x=1.75, initial_y=3.0` (lines 67-68)
+  - Updated naive_position to match Bayesian start position (line 73)
+- `test_filter_debug.py`:
+  - Updated to use new API with `initial_x` and `initial_y` parameters (line 21)
+
+**Impact**: Bayesian filter now starts at correct position, matches other filters from stride #1
+
+---
+
+### 2. ✅ IMU Calibration System Added (CRITICAL - USER REPORTED)
 **Issue**: IMU returns absolute magnetic compass heading (e.g., 130° for North), but code expected 0° for starting direction. This caused completely wrong trajectory - user would face North but system thought they were facing Southeast!
 
 **Example Problem:**
@@ -33,7 +71,7 @@
 
 ---
 
-### 2. ✅ Coordinate System Fixed (CRITICAL)
+### 3. ✅ Coordinate System Fixed (CRITICAL)
 **Issue**: Code used math convention (0°=East), but paper and real IMU use navigation convention (0°=North)
 
 **Changed from:**
@@ -59,7 +97,7 @@ y = stride_length * cos(heading)
 
 ---
 
-### 2. ✅ Particle Filter API Endpoint Fixed
+### 4. ✅ Particle Filter API Endpoint Fixed
 **Issue**: Line 594-607 had TODO placeholder using naive dead reckoning
 
 **Fix**: Replaced with actual particle filter call:
@@ -72,7 +110,7 @@ particle_pos = particle_filter.get_position()
 
 ---
 
-### 3. ✅ MQTT Floor Plan Dimensions Fixed
+### 5. ✅ MQTT Floor Plan Dimensions Fixed
 **Issue**: Used wrong dimensions (20.0m × 10.0m instead of 3.5m × 6.0m)
 
 **Fix**: Changed to correct dimensions
@@ -86,7 +124,7 @@ FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
 
 ## Code Cleanup
 
-### 4. ✅ Removed Unused API Endpoints
+### 6. ✅ Removed Unused API Endpoints
 **Removed:**
 - `/api/sensors/raw` (~33 lines)
 - `/api/sensors/filtered` (~30 lines)
@@ -98,7 +136,7 @@ FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
 
 ---
 
-### 5. ✅ Removed Dead Code
+### 7. ✅ Removed Dead Code
 **Removed:**
 - `imuDirection` element reference (non-existent element)
 
@@ -106,7 +144,7 @@ FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
 
 ---
 
-### 6. ✅ Cleaned Cache and Old Files
+### 8. ✅ Cleaned Cache and Old Files
 **Removed:**
 - `src/__pycache__/` (old bytecode with wrong convention)
 - `dashboard.log` (old logs)
@@ -117,7 +155,7 @@ FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
 
 ## New Features
 
-### 7. ✅ Stride Length Control Added
+### 9. ✅ Stride Length Control Added
 **Added UI input** to customize stride length (0.3m - 1.5m)
 
 **Files:**
@@ -138,7 +176,7 @@ FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
 
 ## Debug Tools Added
 
-### 8. ✅ Comprehensive Filter Debug Logging
+### 10. ✅ Comprehensive Filter Debug Logging
 **Added detailed logging system** to diagnose filter behavior differences
 
 **Logs for each stride:**

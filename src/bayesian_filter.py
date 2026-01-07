@@ -155,7 +155,7 @@ class BayesianNavigationFilter:
     Implements Equation 5 from Koroglu & Yilmaz (2017)
     """
 
-    def __init__(self, floor_plan, stride_length=0.7, n_history=3):
+    def __init__(self, floor_plan, stride_length=0.7, n_history=3, initial_x=1.75, initial_y=3.0):
         """
         Initialize Bayesian filter
 
@@ -163,6 +163,8 @@ class BayesianNavigationFilter:
             floor_plan: FloorPlanPDF object
             stride_length: Default stride length in meters
             n_history: Number of previous positions to use in motion model
+            initial_x: Initial x position in meters (default 1.75m - center of 3.5m x 6.0m room)
+            initial_y: Initial y position in meters (default 3.0m - center of 3.5m x 6.0m room)
         """
         self.floor_plan = floor_plan
         self.stride_length = stride_length
@@ -172,7 +174,7 @@ class BayesianNavigationFilter:
         self.position_history = []
 
         # Current posterior estimate
-        self.current_estimate = {'x': 2.0, 'y': 4.0}  # Start position
+        self.current_estimate = {'x': initial_x, 'y': initial_y}  # Start position
         self.current_covariance = np.eye(2) * 0.5  # Initial uncertainty
 
         # Tunable parameters

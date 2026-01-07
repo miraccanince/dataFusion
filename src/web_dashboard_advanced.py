@@ -118,7 +118,7 @@ DEBUG_LOG_PATH = os.path.join(PROJECT_ROOT, 'filters_debug.log')
 # Initialize floor plan and all filters
 logger.info("Initializing filters...")
 floor_plan = FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)  # Updated to match new room size
-bayesian_filter = BayesianNavigationFilter(floor_plan, stride_length=STRIDE_LENGTH)
+bayesian_filter = BayesianNavigationFilter(floor_plan, stride_length=STRIDE_LENGTH, initial_x=1.75, initial_y=3.0)  # Center of new room
 kalman_filter = KalmanFilter(initial_x=1.75, initial_y=3.0, dt=0.5)  # Center of new room
 particle_filter = ParticleFilter(floor_plan, n_particles=200, initial_x=1.75, initial_y=3.0)  # Center of new room
 logger.info("✓ All filters ready! (Bayesian, Kalman, Particle)")
@@ -706,8 +706,7 @@ def set_start_position():
         logger.info(f"[SET START POSITION] Updated positions for all algorithms")
 
         # Reinitialize filters with new starting position
-        bayesian_filter = BayesianNavigationFilter(floor_plan, stride_length=STRIDE_LENGTH)
-        bayesian_filter.reset(x=start_x, y=start_y)
+        bayesian_filter = BayesianNavigationFilter(floor_plan, stride_length=STRIDE_LENGTH, initial_x=start_x, initial_y=start_y)
         kalman_filter = KalmanFilter(initial_x=start_x, initial_y=start_y, dt=0.5)
         particle_filter = ParticleFilter(floor_plan, n_particles=200, initial_x=start_x, initial_y=start_y)
         logger.info(f"[SET START POSITION] Reinitialized all filters")

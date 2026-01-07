@@ -63,12 +63,14 @@ class LocationPublisher:
         self.floor_plan = FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
         self.bayesian_filter = BayesianNavigationFilter(
             self.floor_plan,
-            stride_length=stride_length
+            stride_length=stride_length,
+            initial_x=1.75,  # Center of 3.5m x 6.0m room
+            initial_y=3.0
         )
         print("✓ Bayesian filter ready")
 
         # State tracking
-        self.naive_position = {'x': 0.0, 'y': 0.0}
+        self.naive_position = {'x': 1.75, 'y': 3.0}  # Match Bayesian filter start position
         self.stride_count = 0
         self.stride_length = stride_length
 
