@@ -578,48 +578,12 @@
 
                 ctx.save();
 
-                // CLEAN FLOOR PLAN: Just draw wall rectangles (no gradient cells)
-                // This creates 4 clean wall lines with no visual artifacts
+                // CLEAN FLOOR PLAN: Just draw the room outline (NO gray areas, NO walls)
+                // Pure white canvas with just a black border showing room boundaries
                 const roomWidth = 3.5;
                 const roomHeight = 6.0;
-                const wallThickness = 0.3;
 
-                // Draw the 4 walls as solid rectangles
-                ctx.fillStyle = 'rgba(80, 80, 80, 0.4)';  // Semi-transparent gray for walls
-
-                // West wall (left)
-                ctx.fillRect(
-                    x.getPixelForValue(0),
-                    y.getPixelForValue(roomHeight),
-                    x.getPixelForValue(wallThickness) - x.getPixelForValue(0),
-                    y.getPixelForValue(0) - y.getPixelForValue(roomHeight)
-                );
-
-                // East wall (right)
-                ctx.fillRect(
-                    x.getPixelForValue(roomWidth - wallThickness),
-                    y.getPixelForValue(roomHeight),
-                    x.getPixelForValue(roomWidth) - x.getPixelForValue(roomWidth - wallThickness),
-                    y.getPixelForValue(0) - y.getPixelForValue(roomHeight)
-                );
-
-                // North wall (top)
-                ctx.fillRect(
-                    x.getPixelForValue(0),
-                    y.getPixelForValue(roomHeight),
-                    x.getPixelForValue(roomWidth) - x.getPixelForValue(0),
-                    y.getPixelForValue(roomHeight - wallThickness) - y.getPixelForValue(roomHeight)
-                );
-
-                // South wall (bottom)
-                ctx.fillRect(
-                    x.getPixelForValue(0),
-                    y.getPixelForValue(wallThickness),
-                    x.getPixelForValue(roomWidth) - x.getPixelForValue(0),
-                    y.getPixelForValue(0) - y.getPixelForValue(wallThickness)
-                );
-
-                // Draw room boundary outline (using roomWidth and roomHeight from above)
+                // Draw ONLY the room boundary outline (no gray wall filling)
                 ctx.strokeStyle = '#2d3748';
                 ctx.lineWidth = 3;
                 ctx.strokeRect(
