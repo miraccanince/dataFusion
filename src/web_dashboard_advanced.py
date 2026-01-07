@@ -381,26 +381,21 @@ def process_stride_all_algorithms(yaw):
 
 def joystick_walk_monitor():
     """
-    Background thread that monitors joystick directional buttons for stride detection.
+    Background thread that monitors joystick MIDDLE button for stride detection.
 
-    CONTROLS:
-    - UP button = Walk North (↑)
-    - RIGHT button = Walk East (→)
-    - DOWN button = Walk South (↓)
-    - LEFT button = Walk West (←)
-    - MIDDLE button = Walk using compass heading (auto-detect from Pi orientation)
+    REALISTIC PEDESTRIAN NAVIGATION:
+    - Press MIDDLE button (push down) for each stride
+    - Direction automatically detected from Pi compass/orientation
+    - Simulates real IMU-based pedestrian dead reckoning system
 
-    Each button press = ONE stride in that direction!
+    Each button press = ONE stride counted, direction from sensor!
     """
     global joystick_walk_active, latest_imu
 
     logger.info("🕹️  Joystick walk monitor started")
-    logger.info("   💡 CONTROLS:")
-    logger.info("      ⬆️  UP    = Walk North")
-    logger.info("      ➡️  RIGHT = Walk East")
-    logger.info("      ⬇️  DOWN  = Walk South")
-    logger.info("      ⬅️  LEFT  = Walk West")
-    logger.info("      🔘 MIDDLE = Auto-detect direction from compass")
+    logger.info("   💡 CONTROL: Press MIDDLE button (push down) for each stride")
+    logger.info("   💡 Direction automatically detected from Pi orientation (compass)")
+    logger.info("   💡 This simulates realistic pedestrian dead reckoning!")
 
     # Import joystick constants
     try:
@@ -409,12 +404,21 @@ def joystick_walk_monitor():
         # Mock mode - define constants
         ACTION_PRESSED = "pressed"
 
-    def process_stride_in_direction(direction_rad, direction_name, button_name):
-        """Helper function to process a stride in a given direction"""
+    def handle_joystick_middle_button(event):
+        """MIDDLE button = Count stride, auto-detect direction from compass"""
         global latest_imu
+
+        # Only process button presses (not releases or holds)
+        if event.action != ACTION_PRESSED:
+            return
+
+        logger.info("   [JOYSTICK] 🔘 BUTTON PRESSED → Counting stride...")
 
         with joystick_walk_lock:
             try:
+                # Determine walking direction from current IMU orientation (compass)
+                heading_rad, direction_name = determine_walking_direction_from_imu()
+
                 # Update latest IMU readings for UI display
                 orientation_deg = sense.get_orientation_degrees()
                 latest_imu = {
@@ -424,60 +428,18 @@ def joystick_walk_monitor():
                 }
 
                 # Process stride for all algorithms
-                process_stride_all_algorithms(direction_rad)
+                process_stride_all_algorithms(heading_rad)
 
-                logger.info(f"✓ STRIDE {stride_count} via {button_name}! Direction: {direction_name} ({np.degrees(direction_rad):.1f}°)")
+                logger.info(f"✓ STRIDE {stride_count} COUNTED! Direction: {direction_name} ({np.degrees(heading_rad):.1f}° from compass)")
                 logger.info(f"  Position: Bayesian=({positions['bayesian']['x']:.2f}, {positions['bayesian']['y']:.2f})")
 
             except Exception as e:
                 logger.error(f"Failed to process stride: {e}")
 
-    def handle_joystick_up(event):
-        """UP button = Walk North (90° in standard math)"""
-        if event.action != ACTION_PRESSED:
-            return
-        logger.info("   [JOYSTICK] ⬆️  UP BUTTON → Walking NORTH")
-        process_stride_in_direction(np.pi/2, "North", "UP")
-
-    def handle_joystick_right(event):
-        """RIGHT button = Walk East (0° in standard math)"""
-        if event.action != ACTION_PRESSED:
-            return
-        logger.info("   [JOYSTICK] ➡️  RIGHT BUTTON → Walking EAST")
-        process_stride_in_direction(0.0, "East", "RIGHT")
-
-    def handle_joystick_down(event):
-        """DOWN button = Walk South (-90° = 270° in standard math)"""
-        if event.action != ACTION_PRESSED:
-            return
-        logger.info("   [JOYSTICK] ⬇️  DOWN BUTTON → Walking SOUTH")
-        process_stride_in_direction(-np.pi/2, "South", "DOWN")
-
-    def handle_joystick_left(event):
-        """LEFT button = Walk West (180° in standard math)"""
-        if event.action != ACTION_PRESSED:
-            return
-        logger.info("   [JOYSTICK] ⬅️  LEFT BUTTON → Walking WEST")
-        process_stride_in_direction(np.pi, "West", "LEFT")
-
-    def handle_joystick_middle_button(event):
-        """MIDDLE button = Auto-detect direction from compass"""
-        if event.action != ACTION_PRESSED:
-            return
-        logger.info("   [JOYSTICK] 🔘 MIDDLE BUTTON → Auto-detecting direction from compass...")
-
-        # Determine walking direction from current IMU orientation
-        heading_rad, direction_name = determine_walking_direction_from_imu()
-        process_stride_in_direction(heading_rad, direction_name, "MIDDLE (compass)")
-
-    # Register ALL direction handlers
-    sense.stick.direction_up = handle_joystick_up
-    sense.stick.direction_right = handle_joystick_right
-    sense.stick.direction_down = handle_joystick_down
-    sense.stick.direction_left = handle_joystick_left
+    # Register ONLY middle button handler (realistic pedestrian navigation)
     sense.stick.direction_middle = handle_joystick_middle_button
 
-    logger.info("🕹️  All joystick buttons registered (UP/RIGHT/DOWN/LEFT/MIDDLE)")
+    logger.info("🕹️  Joystick MIDDLE button registered (direction from compass)")
 
     # Keep thread alive while active
     while joystick_walk_active:
@@ -499,14 +461,10 @@ def joystick_walk_monitor():
             logger.error(f"Error in joystick monitor: {e}")
             time.sleep(0.1)
 
-    # Clean up ALL event handlers when stopping
-    sense.stick.direction_up = None
-    sense.stick.direction_right = None
-    sense.stick.direction_down = None
-    sense.stick.direction_left = None
+    # Clean up event handler when stopping
     sense.stick.direction_middle = None
 
-    logger.info("🛑 Joystick walk monitor stopped - all buttons unregistered")
+    logger.info("🛑 Joystick walk monitor stopped - button unregistered")
 
 @app.route('/')
 def index():
