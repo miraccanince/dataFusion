@@ -111,6 +111,10 @@ kalman_state = {
     'R': 0.1    # Measurement noise
 }
 
+# Debug log file path (absolute path in project root)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEBUG_LOG_PATH = os.path.join(PROJECT_ROOT, 'filters_debug.log')
+
 # Initialize floor plan and all filters
 logger.info("Initializing filters...")
 floor_plan = FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)  # Updated to match new room size
@@ -382,10 +386,13 @@ def process_stride_all_algorithms(yaw):
 
     # Write to debug log file
     try:
-        with open('filters_debug.log', 'a') as f:
+        with open(DEBUG_LOG_PATH, 'a') as f:
             f.write('\n'.join(debug_log_lines) + '\n')
+        # Print to console so user knows logging is working
+        print(f"[DEBUG] Stride #{stride_count + 1} logged to: {DEBUG_LOG_PATH}")
     except Exception as e:
-        logger.error(f"Failed to write debug log: {e}")
+        logger.error(f"Failed to write debug log to {DEBUG_LOG_PATH}: {e}")
+        print(f"[ERROR] Failed to write debug log: {e}")
 
     stride_count += 1
 
@@ -893,14 +900,16 @@ def reset():
 
     # Clear debug log file
     try:
-        with open('filters_debug.log', 'w') as f:
+        with open(DEBUG_LOG_PATH, 'w') as f:
             f.write(f"# Filter Debug Log - Reset at {datetime.utcnow().isoformat()}\n")
             f.write(f"# Starting position: ({start_x}, {start_y})\n")
             f.write(f"# Floor plan: 3.5m x 6.0m room with 0.3m walls\n")
             f.write(f"# Coordinate system: Navigation convention (0°=North, x=sin, y=cos)\n\n")
-        logger.info("[DEBUG] Cleared filters_debug.log")
+        logger.info(f"[DEBUG] Cleared debug log: {DEBUG_LOG_PATH}")
+        print(f"[DEBUG] Debug log cleared and reset: {DEBUG_LOG_PATH}")
     except Exception as e:
-        logger.error(f"Failed to clear debug log: {e}")
+        logger.error(f"Failed to clear debug log at {DEBUG_LOG_PATH}: {e}")
+        print(f"[ERROR] Failed to clear debug log: {e}")
 
     sense.clear()
     return jsonify({'success': True})
@@ -1448,11 +1457,18 @@ if __name__ == '__main__':
 
     # Initialize debug log file
     try:
-        with open('filters_debug.log', 'w') as f:
+        with open(DEBUG_LOG_PATH, 'w') as f:
             f.write(f"# Filter Debug Log - Initialized at {datetime.utcnow().isoformat()}\n")
+            f.write(f"# Log file location: {DEBUG_LOG_PATH}\n")
             f.write(f"# This file will be populated with detailed filter behavior\n\n")
-        logger.info("✓ Initialized filters_debug.log for detailed filter debugging")
+        logger.info(f"✓ Initialized debug log: {DEBUG_LOG_PATH}")
+        print(f"\n{'='*70}")
+        print(f"📝 DEBUG LOG ENABLED")
+        print(f"   Location: {DEBUG_LOG_PATH}")
+        print(f"   File will log each stride's detailed filter behavior")
+        print(f"{'='*70}\n")
     except Exception as e:
-        logger.error(f"Failed to initialize debug log: {e}")
+        logger.error(f"Failed to initialize debug log at {DEBUG_LOG_PATH}: {e}")
+        print(f"[ERROR] Failed to initialize debug log: {e}")
 
     app.run(host='0.0.0.0', port=5001, debug=True, threaded=True)

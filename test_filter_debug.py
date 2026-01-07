@@ -5,13 +5,13 @@ Simulates a few strides and verifies the debug log is created correctly
 """
 
 import sys
+import os
 sys.path.insert(0, 'src')
 
 import numpy as np
-from bayesian_filter import BayesianNavigationFilter, FloorPlanPDF
+from bayesian_filter import BayesianNavigationFilter, FloorPlanPDF, DEBUG_LOG_PATH
 from particle_filter import ParticleFilter
 from kalman_filter import KalmanFilter
-import os
 
 # Initialize floor plan
 floor_plan = FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
@@ -32,7 +32,8 @@ positions = {
 }
 
 # Clear debug log
-with open('filters_debug.log', 'w') as f:
+print(f"Debug log location: {DEBUG_LOG_PATH}\n")
+with open(DEBUG_LOG_PATH, 'w') as f:
     f.write("# Filter Debug Test - Testing logging system\n")
     f.write(f"# Starting position: ({start_x}, {start_y})\n\n")
 
@@ -60,7 +61,7 @@ for stride_num, (heading_deg, direction) in enumerate(test_strides, 1):
     print(f"{'='*70}")
 
     # Write to debug log
-    with open('filters_debug.log', 'a') as f:
+    with open(DEBUG_LOG_PATH, 'a') as f:
         f.write(f"\n{'='*80}\n")
         f.write(f"STRIDE #{stride_num} - Test stride\n")
         f.write(f"{'='*80}\n")
@@ -162,5 +163,5 @@ print(f"  Bayesian: ({positions['bayesian']['x']:6.3f}, {positions['bayesian']['
 print(f"  Kalman:   ({positions['kalman']['x']:6.3f}, {positions['kalman']['y']:6.3f})")
 print(f"  Particle: ({positions['particle']['x']:6.3f}, {positions['particle']['y']:6.3f})")
 
-print(f"\n✓ Debug log written to: filters_debug.log")
-print(f"  File size: {os.path.getsize('filters_debug.log')} bytes\n")
+print(f"\n✓ Debug log written to: {DEBUG_LOG_PATH}")
+print(f"  File size: {os.path.getsize(DEBUG_LOG_PATH)} bytes\n")

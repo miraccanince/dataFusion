@@ -18,9 +18,14 @@ Where:
 """
 
 import numpy as np
+import os
 from scipy.optimize import minimize
 from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
+
+# Debug log path (same as web dashboard)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEBUG_LOG_PATH = os.path.join(PROJECT_ROOT, 'filters_debug.log')
 
 
 class FloorPlanPDF:
@@ -425,10 +430,10 @@ class BayesianNavigationFilter:
 
         # Write debug log to file
         try:
-            with open('filters_debug.log', 'a') as f:
+            with open(DEBUG_LOG_PATH, 'a') as f:
                 f.write('\n'.join(debug_log) + '\n')
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARNING] Bayesian filter failed to write debug log: {e}")
 
         return self.current_estimate
 

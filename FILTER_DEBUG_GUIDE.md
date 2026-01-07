@@ -8,6 +8,22 @@ The system now includes comprehensive debug logging to help diagnose why filters
 
 **File**: `filters_debug.log` (in the project root directory)
 
+**Absolute Path**: The log file is created using an absolute path, so it will always be in:
+```
+/home/pi/dataFusion/filters_debug.log  (on Raspberry Pi)
+```
+or
+```
+/Users/your-username/path/to/dataFusion/filters_debug.log  (on your laptop)
+```
+
+**Console Output**: Every time a stride is logged, you'll see a console message:
+```
+[DEBUG] Stride #1 logged to: /home/pi/dataFusion/filters_debug.log
+```
+
+This confirms the log file is being created and written to successfully.
+
 ## What Gets Logged
 
 ### For Each Stride:

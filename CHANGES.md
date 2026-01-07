@@ -155,18 +155,29 @@ FloorPlanPDF(width_m=3.5, height_m=6.0, resolution=0.1)
 - Side-by-side position comparison
 - Deviation analysis from naive baseline
 
+**Features:**
+- **Absolute file path**: `/home/pi/dataFusion/filters_debug.log` (always in project root)
+- **Console output**: Shows `[DEBUG] Stride #X logged to: <path>` for each stride
+- **Startup message**: Displays full log file path when dashboard starts
+- **Error visibility**: Prints errors to console if log file can't be created
+
 **Files:**
-- `src/web_dashboard_advanced.py` (process_stride_all_algorithms: lines 241-390)
-- `src/bayesian_filter.py` (update method: lines 329-433)
+- `src/web_dashboard_advanced.py` (process_stride_all_algorithms: lines 241-396)
+- `src/bayesian_filter.py` (update method: lines 329-438)
 - `filters_debug.log` (output file, auto-cleared on reset)
 - `test_filter_debug.py` (test script)
-- `FILTER_DEBUG_GUIDE.md` (usage documentation)
+- `FILTER_DEBUG_GUIDE.md` (full usage documentation)
+- `DEBUG_QUICK_START.md` (quick reference for Pi)
 
 **Usage:**
 ```bash
-# Run mock test or walk with Pi
-# Debug log populates at: filters_debug.log
-cat filters_debug.log
+# On Raspberry Pi - you'll see console output confirming logging
+python3 src/web_dashboard_advanced.py
+# Output shows: 📝 DEBUG LOG ENABLED
+#                Location: /home/pi/dataFusion/filters_debug.log
+
+# View log after walking
+cat /home/pi/dataFusion/filters_debug.log
 
 # Test locally
 python3 test_filter_debug.py
