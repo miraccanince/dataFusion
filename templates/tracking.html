@@ -934,16 +934,22 @@
                         // Start polling for IMU updates and LED matrix
                         startJoystickUpdates();
 
-                        // Show confirmation alert
-                        alert('🕹️ Joystick Mode Started!\n\n' +
-                              'HOW TO USE - TILT THE PI:\n' +
-                              '📱 Tilt FORWARD (pitch) = Walk forward\n' +
-                              '📱 Tilt BACKWARD = Walk backward\n' +
-                              '📱 Tilt LEFT (roll) = Walk left\n' +
-                              '📱 Tilt RIGHT = Walk right\n\n' +
-                              'THEN: Press MIDDLE button to count stride!\n\n' +
-                              'Direction combines tilt + compass heading.\n' +
-                              'Watch LED arrows and map update in real-time!');
+                        // Show confirmation alert with calibration info
+                        let alertMsg = '🕹️ Joystick Mode Started!\n\n';
+
+                        if (data.calibration) {
+                            alertMsg += '✓ CALIBRATED!\n';
+                            alertMsg += `Absolute yaw: ${data.calibration.initial_yaw_absolute}°\n`;
+                            alertMsg += 'Your current direction is now 0° (North)\n\n';
+                        }
+
+                        alertMsg += 'HOW TO USE:\n';
+                        alertMsg += '📱 Point Pi in the direction you want to walk\n';
+                        alertMsg += '🔘 Press MIDDLE button to count each stride\n\n';
+                        alertMsg += 'Yaw display shows RELATIVE heading (0° = starting direction)\n';
+                        alertMsg += 'Watch LED arrows and map update in real-time!';
+
+                        alert(alertMsg);
 
                         console.log('[START JOYSTICK] ✓ Joystick mode successfully started');
                     } else {

@@ -100,6 +100,9 @@ latest_imu = {
     'yaw': 0.0
 }
 
+# IMU calibration: Store initial yaw as reference (0° = starting direction)
+initial_yaw_reference = None  # Set when user starts walking
+
 # Simple Kalman filter state
 kalman_state = {
     'yaw': 0.0,
@@ -185,8 +188,21 @@ def determine_walking_direction_from_imu():
 
         roll = orientation_deg.get('roll', 0)
         pitch = orientation_deg.get('pitch', 0)
-        yaw_rad = orientation_rad.get('yaw', 0)
-        yaw_deg = orientation_deg.get('yaw', 0)
+
+        # Get absolute yaw from IMU
+        yaw_absolute_rad = orientation_rad.get('yaw', 0)
+        yaw_absolute_deg = orientation_deg.get('yaw', 0)
+
+        # CALIBRATION: Calculate RELATIVE yaw (subtract initial reference)
+        global initial_yaw_reference
+        if initial_yaw_reference is not None:
+            # Relative yaw = current - initial (current direction becomes 0°)
+            yaw_rad = yaw_absolute_rad - initial_yaw_reference
+            yaw_deg = np.degrees(yaw_rad)
+        else:
+            # Not calibrated yet - use absolute values (fallback)
+            yaw_rad = yaw_absolute_rad
+            yaw_deg = yaw_absolute_deg
 
         # Normalize yaw to 0-360
         yaw_normalized = yaw_deg % 360
@@ -211,7 +227,10 @@ def determine_walking_direction_from_imu():
         else:
             direction = "Unknown"
 
-        logger.info(f"   [IMU] Yaw={yaw_deg:.1f}° → Walking {direction}")
+        if initial_yaw_reference is not None:
+            logger.info(f"   [IMU] Absolute yaw={yaw_absolute_deg:.1f}°, Relative yaw={yaw_deg:.1f}° → Walking {direction}")
+        else:
+            logger.info(f"   [IMU] Yaw={yaw_deg:.1f}° (not calibrated) → Walking {direction}")
 
         return yaw_rad, direction
 
@@ -225,11 +244,24 @@ def process_stride_all_algorithms(yaw):
 
     # Update IMU readings (get current orientation)
     try:
-        orientation = sense.get_orientation_degrees()
+        global initial_yaw_reference
+        orientation_deg = sense.get_orientation_degrees()
+        orientation_rad = sense.get_orientation_radians()
+
+        yaw_absolute_deg = orientation_deg.get('yaw', 0)
+        yaw_absolute_rad = orientation_rad.get('yaw', 0)
+
+        # Calculate relative yaw for display
+        if initial_yaw_reference is not None:
+            yaw_relative_rad = yaw_absolute_rad - initial_yaw_reference
+            yaw_display = round(np.degrees(yaw_relative_rad), 1)
+        else:
+            yaw_display = round(yaw_absolute_deg, 1)
+
         latest_imu = {
-            'roll': round(orientation.get('roll', 0), 1),
-            'pitch': round(orientation.get('pitch', 0), 1),
-            'yaw': round(orientation.get('yaw', 0), 1)
+            'roll': round(orientation_deg.get('roll', 0), 1),
+            'pitch': round(orientation_deg.get('pitch', 0), 1),
+            'yaw': yaw_display  # Show relative (calibrated) yaw
         }
     except Exception as e:
         logger.warning(f"Failed to read IMU orientation: {e}")
@@ -467,11 +499,18 @@ def record_stride(algorithm):
     use_filtered = data.get('use_filtered', False)
 
     # Get heading
+    global initial_yaw_reference
     if use_filtered:
         yaw = kalman_state['yaw']
     else:
         orientation = sense.get_orientation_radians()
-        yaw = orientation.get('yaw', 0)
+        yaw_absolute = orientation.get('yaw', 0)
+
+        # Apply calibration: subtract initial reference
+        if initial_yaw_reference is not None:
+            yaw = yaw_absolute - initial_yaw_reference
+        else:
+            yaw = yaw_absolute
 
     # Update position based on algorithm
     if algorithm == 'naive':
@@ -766,9 +805,10 @@ def mock_test():
 @app.route('/api/reset', methods=['POST'])
 def reset():
     """Reset all data"""
-    global stride_count, positions, trajectories, bayesian_filter, kalman_filter, particle_filter
+    global stride_count, positions, trajectories, bayesian_filter, kalman_filter, particle_filter, initial_yaw_reference
 
     stride_count = 0
+    initial_yaw_reference = None  # Reset calibration
     start_x, start_y = 1.75, 3.0  # Center of 3.5m x 6.0m room
 
     positions = {
@@ -855,12 +895,18 @@ def get_floor_plan():
 def start_joystick_walk():
     """Start joystick button-based stride detection (ONLY MODE - no accelerometer)"""
     try:
-        global joystick_walk_active, joystick_walk_thread
+        global joystick_walk_active, joystick_walk_thread, initial_yaw_reference
 
         if joystick_walk_active:
             return jsonify({'success': False, 'message': 'Joystick-walk already active'})
 
         logger.info("[START JOYSTICK-WALK] Starting joystick stride detection...")
+
+        # CALIBRATION: Capture initial yaw as reference (0° = current direction)
+        orientation_rad = sense.get_orientation_radians()
+        initial_yaw_reference = orientation_rad.get('yaw', 0)
+        logger.info(f"[CALIBRATION] Initial yaw reference set to: {np.degrees(initial_yaw_reference):.1f}° (absolute)")
+        logger.info(f"[CALIBRATION] This direction is now considered 0° (North)")
         logger.info("[START JOYSTICK-WALK] Press the MIDDLE button on SenseHat for each stride!")
 
         # Start background thread
@@ -872,7 +918,11 @@ def start_joystick_walk():
 
         return jsonify({
             'success': True,
-            'message': 'Joystick-walk started - Press MIDDLE button for each stride!'
+            'message': 'Joystick-walk started - Press MIDDLE button for each stride!',
+            'calibration': {
+                'initial_yaw_absolute': round(np.degrees(initial_yaw_reference), 1),
+                'note': 'Current direction is now 0° (North)'
+            }
         })
 
     except Exception as e:
