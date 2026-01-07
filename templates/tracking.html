@@ -213,6 +213,26 @@
                 </div>
             </div>
 
+            <!-- Stride Length Input -->
+            <div style="margin: 10px auto; max-width: 500px; background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px;">
+                <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px;">Stride Length:</div>
+                <div style="display: flex; gap: 10px; align-items: end;">
+                    <div style="flex: 1;">
+                        <label style="display: block; font-size: 11px; margin-bottom: 3px; opacity: 0.9;">Length (m):</label>
+                        <input type="number" id="strideLength" value="0.7" min="0.3" max="1.5" step="0.1"
+                               style="width: 100%; padding: 6px; border: none; border-radius: 4px; font-size: 14px;">
+                    </div>
+                    <div style="flex: 1; font-size: 11px; opacity: 0.7; padding: 0 5px;">
+                        Common values:<br>
+                        0.5m, 0.7m, 1.0m
+                    </div>
+                    <button onclick="updateStrideLength()"
+                            style="padding: 6px 15px; background: #4299e1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px;">
+                        Update
+                    </button>
+                </div>
+            </div>
+
             <!-- Joystick Control Buttons (NEW - Replaces old accelerometer mode) -->
             <div style="display: flex; gap: 10px; margin: 10px auto; max-width: 500px;">
                 <button id="startBtn" onclick="startJoystickWalk()" style="flex: 1; padding: 12px; font-size: 16px; background: #48bb78; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
@@ -1146,6 +1166,41 @@
             .catch(err => {
                 console.error('[UPDATE START] Error:', err);
                 alert('Error updating position: ' + err.message);
+            });
+        }
+
+        function updateStrideLength() {
+            const length = parseFloat(document.getElementById('strideLength').value);
+
+            console.log(`[UPDATE STRIDE] Attempting to set stride length to ${length}m`);
+
+            if (length < 0.3 || length > 1.5) {
+                alert('Stride length must be between 0.3m and 1.5m!\n\nCommon values:\n• 0.5m (short stride)\n• 0.7m (average)\n• 1.0m (long stride)');
+                console.error('[UPDATE STRIDE] Invalid stride length');
+                return;
+            }
+
+            fetch('/api/set_stride_length', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stride_length: length })
+            })
+            .then(response => {
+                console.log('[UPDATE STRIDE] Response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('[UPDATE STRIDE] Response data:', data);
+                if (data.success) {
+                    alert(`✓ Stride length updated to ${length}m`);
+                } else {
+                    console.error('[UPDATE STRIDE] Failed:', data);
+                    alert('Failed to update stride length: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                console.error('[UPDATE STRIDE] Error:', err);
+                alert('Error updating stride length: ' + err.message);
             });
         }
 

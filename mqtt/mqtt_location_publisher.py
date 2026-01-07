@@ -222,8 +222,8 @@ class LocationPublisher:
             )
 
             # Update naive dead reckoning
-            self.naive_position['x'] += self.stride_length * np.sin(heading_rad)
-            self.naive_position['y'] += self.stride_length * np.cos(heading_rad)
+            self.naive_position['x'] += self.stride_length * np.cos(heading_rad)
+            self.naive_position['y'] += self.stride_length * np.sin(heading_rad)
 
         else:
             bayesian_pos = self.bayesian_filter.current_estimate

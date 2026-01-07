@@ -557,8 +557,8 @@ def record_stride(algorithm):
     # Update position based on algorithm
     if algorithm == 'naive':
         # Simple dead reckoning
-        new_x = positions['naive']['x'] + STRIDE_LENGTH * np.sin(yaw)
-        new_y = positions['naive']['y'] + STRIDE_LENGTH * np.cos(yaw)
+        new_x = positions['naive']['x'] + STRIDE_LENGTH * np.cos(yaw)
+        new_y = positions['naive']['y'] + STRIDE_LENGTH * np.sin(yaw)
         positions['naive'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
 
         trajectories['naive'].append({
@@ -593,8 +593,8 @@ def record_stride(algorithm):
 
     elif algorithm == 'particle':
         # TODO: Implement particle filter (placeholder)
-        new_x = positions['particle']['x'] + STRIDE_LENGTH * np.sin(yaw)
-        new_y = positions['particle']['y'] + STRIDE_LENGTH * np.cos(yaw)
+        new_x = positions['particle']['x'] + STRIDE_LENGTH * np.cos(yaw)
+        new_y = positions['particle']['y'] + STRIDE_LENGTH * np.sin(yaw)
         positions['particle'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
 
         trajectories['particle'].append({
@@ -715,6 +715,49 @@ def set_start_position():
         })
     except Exception as e:
         logger.error(f"[SET START POSITION] ✗ ERROR: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/set_stride_length', methods=['POST'])
+def set_stride_length():
+    """Set custom stride length"""
+    global STRIDE_LENGTH, bayesian_filter
+
+    logger.info("[SET STRIDE LENGTH] API endpoint called")
+
+    try:
+        data = request.get_json()
+        logger.info(f"[SET STRIDE LENGTH] Received data: {data}")
+
+        stride_length = float(data.get('stride_length', 0.7))
+        logger.info(f"[SET STRIDE LENGTH] Parsed stride length: {stride_length}m")
+
+        # Validate stride length range
+        if stride_length < 0.3 or stride_length > 1.5:
+            logger.error(f"[SET STRIDE LENGTH] Invalid stride length: {stride_length}m")
+            return jsonify({
+                'success': False,
+                'error': 'Stride length must be between 0.3m and 1.5m'
+            }), 400
+
+        # Update global stride length
+        STRIDE_LENGTH = stride_length
+        logger.info(f"[SET STRIDE LENGTH] Updated global STRIDE_LENGTH to {stride_length}m")
+
+        # Update Bayesian filter with new stride length
+        if bayesian_filter:
+            bayesian_filter.stride_length = stride_length
+            logger.info(f"[SET STRIDE LENGTH] Updated Bayesian filter stride length")
+
+        logger.info(f"[SET STRIDE LENGTH] ✓ SUCCESS - Stride length set to {stride_length}m")
+        return jsonify({
+            'success': True,
+            'stride_length': stride_length
+        })
+    except Exception as e:
+        logger.error(f"[SET STRIDE LENGTH] ✗ ERROR: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
