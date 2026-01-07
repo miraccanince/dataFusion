@@ -308,22 +308,63 @@ def process_stride_all_algorithms(yaw):
 
     stride_count += 1
 
-    # Visual feedback on SenseHat LED
-    # Green flash = stride detected
+    # Visual feedback on SenseHat LED - show directional arrow
+    # Determine which arrow to display based on heading
     G = [0, 255, 0]  # Green
     O = [0, 0, 0]    # Off
 
-    # Create 8x8 grid (64 pixels) - flash green on top row
-    grid = [
-        G, G, G, G, G, G, G, G,  # Row 1: All green
-        O, O, O, O, O, O, O, O,  # Rows 2-8: Off
-        O, O, O, O, O, O, O, O,
-        O, O, O, O, O, O, O, O,
-        O, O, O, O, O, O, O, O,
-        O, O, O, O, O, O, O, O,
-        O, O, O, O, O, O, O, O,
-        O, O, O, O, O, O, O, O
-    ]
+    # Convert heading to direction for arrow display
+    yaw_deg = np.degrees(yaw) % 360
+
+    # Determine which arrow pattern to show
+    if 45 <= yaw_deg < 135:  # North (around 90°)
+        # Arrow pointing UP (North)
+        grid = [
+            O, O, O, G, G, O, O, O,  # Row 1: Arrow tip
+            O, O, G, G, G, G, O, O,  # Row 2
+            O, G, O, G, G, O, G, O,  # Row 3
+            O, O, O, G, G, O, O, O,  # Row 4
+            O, O, O, G, G, O, O, O,  # Row 5
+            O, O, O, G, G, O, O, O,  # Row 6
+            O, O, O, G, G, O, O, O,  # Row 7
+            O, O, O, O, O, O, O, O   # Row 8
+        ]
+    elif 135 <= yaw_deg < 225:  # West (around 180°)
+        # Arrow pointing LEFT (West)
+        grid = [
+            O, O, O, G, O, O, O, O,  # Row 1
+            O, O, G, G, O, O, O, O,  # Row 2
+            O, G, G, G, G, G, G, O,  # Row 3
+            G, G, G, G, G, G, G, G,  # Row 4: Thick arrow
+            G, G, G, G, G, G, G, G,  # Row 5: Thick arrow
+            O, G, G, G, G, G, G, O,  # Row 6
+            O, O, G, G, O, O, O, O,  # Row 7
+            O, O, O, G, O, O, O, O   # Row 8
+        ]
+    elif 225 <= yaw_deg < 315:  # South (around 270° = -90°)
+        # Arrow pointing DOWN (South)
+        grid = [
+            O, O, O, O, O, O, O, O,  # Row 1
+            O, O, O, G, G, O, O, O,  # Row 2
+            O, O, O, G, G, O, O, O,  # Row 3
+            O, O, O, G, G, O, O, O,  # Row 4
+            O, O, O, G, G, O, O, O,  # Row 5
+            O, G, O, G, G, O, G, O,  # Row 6
+            O, O, G, G, G, G, O, O,  # Row 7
+            O, O, O, G, G, O, O, O   # Row 8: Arrow tip
+        ]
+    else:  # East (around 0°/360°)
+        # Arrow pointing RIGHT (East)
+        grid = [
+            O, O, O, O, G, O, O, O,  # Row 1
+            O, O, O, O, G, G, O, O,  # Row 2
+            O, G, G, G, G, G, G, O,  # Row 3
+            G, G, G, G, G, G, G, G,  # Row 4: Thick arrow
+            G, G, G, G, G, G, G, G,  # Row 5: Thick arrow
+            O, G, G, G, G, G, G, O,  # Row 6
+            O, O, O, O, G, G, O, O,  # Row 7
+            O, O, O, O, G, O, O, O   # Row 8
+        ]
 
     # Update LED matrix
     with led_matrix_lock:
@@ -331,7 +372,7 @@ def process_stride_all_algorithms(yaw):
         current_led_matrix = grid.copy()
 
     sense.set_pixels(grid)
-    time.sleep(0.1)
+    time.sleep(0.2)  # Show arrow for 200ms
     sense.clear()
 
     # Clear LED matrix after flash
