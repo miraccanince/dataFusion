@@ -70,6 +70,26 @@
             width: 100%;
         }
 
+        .main-layout {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        .chart-section {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .side-panel {
+            width: 280px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            padding: 15px;
+            position: sticky;
+            top: 20px;
+        }
+
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -221,40 +241,20 @@
                 </div>
             </div>
 
-            <!-- LED Matrix Display -->
-            <div style="margin: 15px auto; max-width: 400px; background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px;">
-                <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; text-align: center;">💡 SenseHat LED Matrix</div>
-                <div id="ledMatrix" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-width: 200px; margin: 0 auto;">
-                    <!-- 64 pixels will be inserted here by JavaScript -->
-                </div>
-                <div style="text-align: center; margin-top: 8px; font-size: 10px; opacity: 0.8;">
-                    Real-time LED sync with SenseHat
-                </div>
-            </div>
-
-            <!-- Mock Test and Screenshot Buttons -->
+            <!-- Quick Action Buttons -->
             <div style="display: flex; gap: 8px; justify-content: center; margin: 10px 0;">
                 <button onclick="runMockTest()"
-                        style="padding: 10px 25px; background: #9f7aea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">
+                        style="padding: 8px 20px; background: #9f7aea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px;">
                     Mock Test
                 </button>
                 <button onclick="takeScreenshot()"
-                        style="padding: 10px 25px; background: #4299e1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">
+                        style="padding: 8px 20px; background: #4299e1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px;">
                     Screenshot
                 </button>
-                <button onclick="generateReport()"
-                        style="padding: 10px 25px; background: #48bb78; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px;">
-                    Report
-                </button>
-            </div>
-
-            <div class="instruction" style="font-size: 12px; padding: 8px;">
-                <strong>Instructions:</strong> Set position → START WALKING → walk naturally → STOP WALKING<br>
-                <em style="font-size: 11px;">Use Manual Controls or Mock Test for testing without hardware</em>
             </div>
         </div>
 
-        <!-- Trajectory Chart with Manual Controls -->
+        <!-- Trajectory Chart with Side Panel -->
         <div class="chart-container">
             <h2>Floor Plan & Trajectory Comparison</h2>
 
@@ -281,10 +281,10 @@
                 </div>
             </div>
 
-            <!-- Side by side: Chart on left, Manual controls on right -->
-            <div style="display: flex; gap: 20px; align-items: flex-start;">
-                <!-- Chart -->
-                <div style="flex: 1;">
+            <!-- Main layout: Chart on left, Controls + LED on right -->
+            <div class="main-layout">
+                <!-- Chart Section -->
+                <div class="chart-section">
                     <div class="chart-wrapper">
                         <canvas id="trajectoryChart"></canvas>
                     </div>
@@ -293,8 +293,20 @@
                     </div>
                 </div>
 
-                <!-- Manual Walk Controls -->
-                <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; max-width: 200px;">
+                <!-- Compact Side Panel with LED Matrix + Manual Controls -->
+                <div class="side-panel">
+                    <!-- LED Matrix -->
+                    <div style="margin-bottom: 15px;">
+                        <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; text-align: center;">💡 SenseHat LED</div>
+                        <div id="ledMatrix" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 1px; max-width: 160px; margin: 0 auto;">
+                            <!-- 64 pixels will be inserted here by JavaScript -->
+                        </div>
+                    </div>
+
+                    <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 15px 0;"></div>
+
+                    <!-- Manual Walk Controls -->
+                    <div>
                     <div style="font-size: 13px; font-weight: bold; margin-bottom: 10px; text-align: center;">Manual Walk</div>
 
                     <!-- Current Heading Display -->
@@ -331,6 +343,7 @@
                             S
                         </button>
                         <div></div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -1050,7 +1063,7 @@
                 const pixel = document.createElement('div');
                 pixel.id = `led-${i}`;
                 pixel.style.width = '100%';
-                pixel.style.height = '20px';
+                pixel.style.height = '16px';  // Smaller for compact side panel
                 pixel.style.background = 'rgb(0, 0, 0)'; // Start with black
                 pixel.style.border = '1px solid rgba(255, 255, 255, 0.2)';
                 pixel.style.borderRadius = '2px';
