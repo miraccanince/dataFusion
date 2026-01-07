@@ -235,9 +235,9 @@ def process_stride_all_algorithms(yaw):
         logger.warning(f"Failed to read IMU orientation: {e}")
 
     # 1. NAIVE algorithm (simple dead reckoning)
-    # Standard math: x = cos(angle), y = sin(angle)
-    new_x = positions['naive']['x'] + STRIDE_LENGTH * np.cos(yaw)
-    new_y = positions['naive']['y'] + STRIDE_LENGTH * np.sin(yaw)
+    # Navigation convention: 0°=North, x = sin(angle), y = cos(angle)
+    new_x = positions['naive']['x'] + STRIDE_LENGTH * np.sin(yaw)
+    new_y = positions['naive']['y'] + STRIDE_LENGTH * np.cos(yaw)
     positions['naive'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
     trajectories['naive'].append({
         'stride': stride_count,
@@ -265,9 +265,9 @@ def process_stride_all_algorithms(yaw):
 
     # 3. LINEAR KALMAN FILTER (position + velocity tracking)
     # Calculate naive position as measurement
-    # Standard math: x = cos(angle), y = sin(angle)
-    naive_meas_x = positions['kalman']['x'] + STRIDE_LENGTH * np.cos(yaw)
-    naive_meas_y = positions['kalman']['y'] + STRIDE_LENGTH * np.sin(yaw)
+    # Navigation convention: 0°=North, x = sin(angle), y = cos(angle)
+    naive_meas_x = positions['kalman']['x'] + STRIDE_LENGTH * np.sin(yaw)
+    naive_meas_y = positions['kalman']['y'] + STRIDE_LENGTH * np.cos(yaw)
     kalman_filter.predict()
     kalman_filter.update([naive_meas_x, naive_meas_y])
     kalman_pos = kalman_filter.get_position()
@@ -304,8 +304,8 @@ def process_stride_all_algorithms(yaw):
     # Convert heading to direction for arrow display
     yaw_deg = np.degrees(yaw) % 360
 
-    # Determine which arrow pattern to show
-    if 45 <= yaw_deg < 135:  # North (around 90°)
+    # Determine which arrow pattern to show (navigation convention: 0°=North)
+    if 315 <= yaw_deg or yaw_deg < 45:  # North (around 0°/360°)
         # Arrow pointing UP (North)
         grid = [
             O, O, O, G, G, O, O, O,  # Row 1: Arrow tip
@@ -317,19 +317,19 @@ def process_stride_all_algorithms(yaw):
             O, O, O, G, G, O, O, O,  # Row 7
             O, O, O, O, O, O, O, O   # Row 8
         ]
-    elif 135 <= yaw_deg < 225:  # West (around 180°)
-        # Arrow pointing LEFT (West)
+    elif 45 <= yaw_deg < 135:  # East (around 90°)
+        # Arrow pointing RIGHT (East)
         grid = [
-            O, O, O, G, O, O, O, O,  # Row 1
-            O, O, G, G, O, O, O, O,  # Row 2
+            O, O, O, O, G, O, O, O,  # Row 1
+            O, O, O, O, G, G, O, O,  # Row 2
             O, G, G, G, G, G, G, O,  # Row 3
             G, G, G, G, G, G, G, G,  # Row 4: Thick arrow
             G, G, G, G, G, G, G, G,  # Row 5: Thick arrow
             O, G, G, G, G, G, G, O,  # Row 6
-            O, O, G, G, O, O, O, O,  # Row 7
-            O, O, O, G, O, O, O, O   # Row 8
+            O, O, O, O, G, G, O, O,  # Row 7
+            O, O, O, O, G, O, O, O   # Row 8
         ]
-    elif 225 <= yaw_deg < 315:  # South (around 270° = -90°)
+    elif 135 <= yaw_deg < 225:  # South (around 180°)
         # Arrow pointing DOWN (South)
         grid = [
             O, O, O, O, O, O, O, O,  # Row 1
@@ -341,17 +341,17 @@ def process_stride_all_algorithms(yaw):
             O, O, G, G, G, G, O, O,  # Row 7
             O, O, O, G, G, O, O, O   # Row 8: Arrow tip
         ]
-    else:  # East (around 0°/360°)
-        # Arrow pointing RIGHT (East)
+    else:  # West (225-315°, around 270°)
+        # Arrow pointing LEFT (West)
         grid = [
-            O, O, O, O, G, O, O, O,  # Row 1
-            O, O, O, O, G, G, O, O,  # Row 2
+            O, O, O, G, O, O, O, O,  # Row 1
+            O, O, G, G, O, O, O, O,  # Row 2
             O, G, G, G, G, G, G, O,  # Row 3
             G, G, G, G, G, G, G, G,  # Row 4: Thick arrow
             G, G, G, G, G, G, G, G,  # Row 5: Thick arrow
             O, G, G, G, G, G, G, O,  # Row 6
-            O, O, O, O, G, G, O, O,  # Row 7
-            O, O, O, O, G, O, O, O   # Row 8
+            O, O, G, G, O, O, O, O,  # Row 7
+            O, O, O, G, O, O, O, O   # Row 8
         ]
 
     # Update LED matrix
@@ -475,9 +475,9 @@ def record_stride(algorithm):
 
     # Update position based on algorithm
     if algorithm == 'naive':
-        # Simple dead reckoning
-        new_x = positions['naive']['x'] + STRIDE_LENGTH * np.cos(yaw)
-        new_y = positions['naive']['y'] + STRIDE_LENGTH * np.sin(yaw)
+        # Simple dead reckoning (navigation convention: 0°=North)
+        new_x = positions['naive']['x'] + STRIDE_LENGTH * np.sin(yaw)
+        new_y = positions['naive']['y'] + STRIDE_LENGTH * np.cos(yaw)
         positions['naive'] = {'x': round(new_x, 3), 'y': round(new_y, 3)}
 
         trajectories['naive'].append({
@@ -736,9 +736,9 @@ def mock_test():
             # Process stride with filters first
             process_stride_all_algorithms(heading)
 
-            # Update ground truth AFTER processing (so indices match)
-            gt_x += STRIDE_LENGTH * np.cos(heading)
-            gt_y += STRIDE_LENGTH * np.sin(heading)
+            # Update ground truth AFTER processing (navigation convention: 0°=North)
+            gt_x += STRIDE_LENGTH * np.sin(heading)
+            gt_y += STRIDE_LENGTH * np.cos(heading)
             trajectories['ground_truth'].append({
                 'x': round(gt_x, 3),
                 'y': round(gt_y, 3),

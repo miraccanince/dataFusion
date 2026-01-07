@@ -53,9 +53,9 @@ class ParticleFilter:
             # Add noise to heading for each particle
             noisy_heading = heading + np.random.normal(0, self.heading_noise)
 
-            # Calculate displacement
-            dx = stride_length * np.cos(noisy_heading)
-            dy = stride_length * np.sin(noisy_heading)
+            # Calculate displacement (navigation convention: 0°=North)
+            dx = stride_length * np.sin(noisy_heading)
+            dy = stride_length * np.cos(noisy_heading)
 
             # Add position noise
             dx += np.random.normal(0, self.position_noise)

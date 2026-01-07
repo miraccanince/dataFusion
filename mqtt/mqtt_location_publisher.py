@@ -221,9 +221,9 @@ class LocationPublisher:
                 stride_length=self.stride_length
             )
 
-            # Update naive dead reckoning
-            self.naive_position['x'] += self.stride_length * np.cos(heading_rad)
-            self.naive_position['y'] += self.stride_length * np.sin(heading_rad)
+            # Update naive dead reckoning (navigation convention: 0°=North)
+            self.naive_position['x'] += self.stride_length * np.sin(heading_rad)
+            self.naive_position['y'] += self.stride_length * np.cos(heading_rad)
 
         else:
             bayesian_pos = self.bayesian_filter.current_estimate

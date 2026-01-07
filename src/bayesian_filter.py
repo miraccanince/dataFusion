@@ -220,9 +220,9 @@ class BayesianNavigationFilter:
         Returns:
             Probability density
         """
-        # IMU prediction (standard math: x = cos, y = sin)
-        z_x = x_prev + stride_length * np.cos(heading)
-        z_y = y_prev + stride_length * np.sin(heading)
+        # IMU prediction (navigation convention: 0°=North, x = sin, y = cos)
+        z_x = x_prev + stride_length * np.sin(heading)
+        z_y = y_prev + stride_length * np.cos(heading)
 
         # Gaussian likelihood centered at IMU prediction
         mean = np.array([z_x, z_y])
@@ -340,9 +340,9 @@ class BayesianNavigationFilter:
         x_prev = self.current_estimate['x']
         y_prev = self.current_estimate['y']
 
-        # IMU prediction (standard math: x = cos, y = sin)
-        imu_x = x_prev + stride_length * np.cos(heading)
-        imu_y = y_prev + stride_length * np.sin(heading)
+        # IMU prediction (navigation convention: 0°=North, x = sin, y = cos)
+        imu_x = x_prev + stride_length * np.sin(heading)
+        imu_y = y_prev + stride_length * np.cos(heading)
 
         # CRITICAL: Check if PATH from current to IMU prediction crosses through wall
         # Sample points along the line segment to detect wall crossing
