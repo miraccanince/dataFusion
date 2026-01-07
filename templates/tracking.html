@@ -578,54 +578,48 @@
 
                 ctx.save();
 
-                // If floor plan data is loaded, draw the probability heatmap
-                if (floorPlanData && floorPlanData.grid) {
-                    const grid = floorPlanData.grid;
-                    const gridHeight = grid.length;
-                    const gridWidth = grid[0].length;
-                    const resolution = floorPlanData.resolution;
-
-                    // Draw each cell of the floor plan grid as a colored rectangle
-                    for (let row = 0; row < gridHeight; row++) {
-                        for (let col = 0; col < gridWidth; col++) {
-                            const probability = grid[row][col];
-
-                            // Convert grid indices to meter coordinates
-                            const xMeters = col * resolution;
-                            const yMeters = (gridHeight - row - 1) * resolution;  // Flip Y axis
-
-                            // Convert to pixel positions
-                            const x1 = x.getPixelForValue(xMeters);
-                            const x2 = x.getPixelForValue(xMeters + resolution);
-                            const y1 = y.getPixelForValue(yMeters + resolution);
-                            const y2 = y.getPixelForValue(yMeters);
-
-                            // Color based on probability - BINARY rendering (no gradients)
-                            // Walls (prob < 0.15) = dark gray, Walkable (prob >= 0.15) = light
-                            let red, green, blue, alpha;
-                            if (probability < 0.15) {
-                                // Walls (prob = 0.01) - dark gray
-                                red = 60;
-                                green = 60;
-                                blue = 60;
-                                alpha = 0.5;
-                            } else {
-                                // Walkable area (prob = 1.0) - very light blue (almost invisible)
-                                red = 200;
-                                green = 230;
-                                blue = 255;
-                                alpha = 0.12;
-                            }
-
-                            ctx.fillStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-                            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-                        }
-                    }
-                }
-
-                // Draw room boundary outline
+                // CLEAN FLOOR PLAN: Just draw wall rectangles (no gradient cells)
+                // This creates 4 clean wall lines with no visual artifacts
                 const roomWidth = 3.5;
                 const roomHeight = 6.0;
+                const wallThickness = 0.3;
+
+                // Draw the 4 walls as solid rectangles
+                ctx.fillStyle = 'rgba(80, 80, 80, 0.4)';  // Semi-transparent gray for walls
+
+                // West wall (left)
+                ctx.fillRect(
+                    x.getPixelForValue(0),
+                    y.getPixelForValue(roomHeight),
+                    x.getPixelForValue(wallThickness) - x.getPixelForValue(0),
+                    y.getPixelForValue(0) - y.getPixelForValue(roomHeight)
+                );
+
+                // East wall (right)
+                ctx.fillRect(
+                    x.getPixelForValue(roomWidth - wallThickness),
+                    y.getPixelForValue(roomHeight),
+                    x.getPixelForValue(roomWidth) - x.getPixelForValue(roomWidth - wallThickness),
+                    y.getPixelForValue(0) - y.getPixelForValue(roomHeight)
+                );
+
+                // North wall (top)
+                ctx.fillRect(
+                    x.getPixelForValue(0),
+                    y.getPixelForValue(roomHeight),
+                    x.getPixelForValue(roomWidth) - x.getPixelForValue(0),
+                    y.getPixelForValue(roomHeight - wallThickness) - y.getPixelForValue(roomHeight)
+                );
+
+                // South wall (bottom)
+                ctx.fillRect(
+                    x.getPixelForValue(0),
+                    y.getPixelForValue(wallThickness),
+                    x.getPixelForValue(roomWidth) - x.getPixelForValue(0),
+                    y.getPixelForValue(0) - y.getPixelForValue(wallThickness)
+                );
+
+                // Draw room boundary outline (using roomWidth and roomHeight from above)
                 ctx.strokeStyle = '#2d3748';
                 ctx.lineWidth = 3;
                 ctx.strokeRect(
