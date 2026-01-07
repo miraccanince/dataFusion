@@ -576,48 +576,67 @@
 
                 ctx.save();
 
-                // Draw room boundaries (outer walls)
-                ctx.strokeStyle = '#2d3748';
-                ctx.lineWidth = 4;
-                ctx.strokeRect(
-                    x.getPixelForValue(0),
-                    y.getPixelForValue(10),
-                    x.getPixelForValue(10) - x.getPixelForValue(0),
-                    y.getPixelForValue(0) - y.getPixelForValue(10)
-                );
+                // Room dimensions: 3.5m x 6.0m with 0.3m walls on all sides
+                const wallThickness = 0.3;
+                const roomWidth = 3.5;
+                const roomHeight = 6.0;
 
-                // Draw middle wall (vertical divider)
-                ctx.strokeStyle = '#1a202c';
-                ctx.lineWidth = 6;
-                ctx.beginPath();
-                const wallX = x.getPixelForValue(5);
-                ctx.moveTo(wallX, y.getPixelForValue(9));
-                ctx.lineTo(wallX, y.getPixelForValue(1));
-                ctx.stroke();
+                // Calculate wall positions in pixels
+                const outerLeft = x.getPixelForValue(0);
+                const outerRight = x.getPixelForValue(roomWidth);
+                const outerTop = y.getPixelForValue(roomHeight);
+                const outerBottom = y.getPixelForValue(0);
 
-                // Fill room backgrounds with subtle colors
-                ctx.fillStyle = 'rgba(200, 230, 255, 0.1)';
+                const innerLeft = x.getPixelForValue(wallThickness);
+                const innerRight = x.getPixelForValue(roomWidth - wallThickness);
+                const innerTop = y.getPixelForValue(roomHeight - wallThickness);
+                const innerBottom = y.getPixelForValue(wallThickness);
+
+                // Draw WALLS as filled rectangles (dark gray)
+                ctx.fillStyle = 'rgba(45, 55, 72, 0.3)';  // Semi-transparent dark gray for walls
+
+                // LEFT WALL (x: 0 to 0.3)
+                ctx.fillRect(outerLeft, outerTop, innerLeft - outerLeft, outerBottom - outerTop);
+
+                // RIGHT WALL (x: 3.2 to 3.5)
+                ctx.fillRect(innerRight, outerTop, outerRight - innerRight, outerBottom - outerTop);
+
+                // BOTTOM WALL (y: 0 to 0.3)
+                ctx.fillRect(outerLeft, innerBottom, outerRight - outerLeft, outerBottom - innerBottom);
+
+                // TOP WALL (y: 5.7 to 6.0)
+                ctx.fillRect(outerLeft, outerTop, outerRight - outerLeft, innerTop - outerTop);
+
+                // Draw walkable area with subtle background
+                ctx.fillStyle = 'rgba(200, 230, 255, 0.08)';  // Very light blue for walkable area
                 ctx.fillRect(
-                    x.getPixelForValue(1),
-                    y.getPixelForValue(9),
-                    x.getPixelForValue(4.8) - x.getPixelForValue(1),
-                    y.getPixelForValue(1) - y.getPixelForValue(9)
+                    innerLeft,
+                    innerTop,
+                    innerRight - innerLeft,
+                    innerBottom - innerTop
                 );
 
-                ctx.fillStyle = 'rgba(255, 230, 200, 0.1)';
-                ctx.fillRect(
-                    x.getPixelForValue(5.2),
-                    y.getPixelForValue(9),
-                    x.getPixelForValue(9) - x.getPixelForValue(5.2),
-                    y.getPixelForValue(1) - y.getPixelForValue(9)
-                );
+                // Draw wall borders (to make them more visible)
+                ctx.strokeStyle = '#2d3748';  // Dark gray
+                ctx.lineWidth = 2;
+                ctx.strokeRect(outerLeft, outerTop, outerRight - outerLeft, outerBottom - outerTop);
 
-                // Add room labels
-                ctx.fillStyle = '#4a5568';
-                ctx.font = 'bold 16px sans-serif';
+                // Draw inner boundary (walkable area border)
+                ctx.strokeStyle = '#4a5568';  // Medium gray
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);  // Dashed line
+                ctx.strokeRect(innerLeft, innerTop, innerRight - innerLeft, innerBottom - innerTop);
+                ctx.setLineDash([]);  // Reset line dash
+
+                // Add room label
+                ctx.fillStyle = '#2d3748';
+                ctx.font = 'bold 14px sans-serif';
                 ctx.textAlign = 'center';
-                ctx.fillText('Room 1', x.getPixelForValue(3), y.getPixelForValue(8.5));
-                ctx.fillText('Room 2', x.getPixelForValue(7), y.getPixelForValue(8.5));
+                ctx.fillText(
+                    '3.5m × 6.0m Room',
+                    x.getPixelForValue(roomWidth / 2),
+                    y.getPixelForValue(roomHeight - 0.5)
+                );
 
                 // Draw starting position marker (use custom position from inputs)
                 const customStartX = parseFloat(document.getElementById('startX').value) || 2.0;
@@ -639,8 +658,8 @@
                 ctx.fillText('START', startX, startY - 15);
 
                 // Draw compass rose in top-right corner
-                const compassX = x.getPixelForValue(9.2);
-                const compassY = y.getPixelForValue(9.2);
+                const compassX = x.getPixelForValue(3.1);  // Updated for 3.5m room width
+                const compassY = y.getPixelForValue(5.6);  // Updated for 6.0m room height
                 const compassSize = 25;
 
                 // Compass circle background
