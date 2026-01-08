@@ -243,6 +243,19 @@
                 </button>
             </div>
 
+            <!-- Download Data Buttons -->
+            <div style="display: flex; gap: 10px; max-width: 800px; margin: 15px auto;">
+                <button onclick="downloadAllTrajectories()" style="flex: 1; padding: 12px; font-size: 16px; background: #3182ce; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                    📥 DOWNLOAD ALL DATA (CSV)
+                </button>
+                <button onclick="downloadNaive()" style="flex: 1; padding: 10px; font-size: 14px; background: #e53e3e; color: white; border: none; border-radius: 8px; cursor: pointer;">
+                    Naive CSV
+                </button>
+                <button onclick="downloadBayesian()" style="flex: 1; padding: 10px; font-size: 14px; background: #3182ce; color: white; border: none; border-radius: 8px; cursor: pointer;">
+                    Bayesian CSV
+                </button>
+            </div>
+
             <!-- How System Works -->
             <div style="margin: 15px auto; max-width: 800px; background: rgba(100, 200, 255, 0.2); border: 2px solid #4299e1; padding: 15px; border-radius: 8px;">
                 <div style="font-size: 15px; font-weight: bold; margin-bottom: 10px; text-align: center; color: #4299e1;">📱 HOW IT WORKS</div>
@@ -1018,6 +1031,54 @@
                     console.error('[STOP JOYSTICK] Error:', err);
                     alert('Error stopping joystick mode: ' + err.message);
                 });
+        }
+
+        // =====================
+        // DOWNLOAD FUNCTIONS
+        // =====================
+
+        function downloadAllTrajectories() {
+            console.log('[DOWNLOAD] Downloading all trajectories...');
+
+            // Download all algorithm CSV files
+            const algorithms = ['naive', 'bayesian', 'kalman', 'particle'];
+            algorithms.forEach(algo => {
+                const url = `/api/download/${algo}`;
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${algo}_trajectory.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+
+            alert('✓ Downloading all 4 trajectory CSV files!\n\n' +
+                  'Files will be saved to your Downloads folder:\n' +
+                  '- naive_trajectory_YYYYMMDD_HHMMSS.csv\n' +
+                  '- bayesian_trajectory_YYYYMMDD_HHMMSS.csv\n' +
+                  '- kalman_trajectory_YYYYMMDD_HHMMSS.csv\n' +
+                  '- particle_trajectory_YYYYMMDD_HHMMSS.csv\n\n' +
+                  'Use these files in the Jupyter notebook for analysis!');
+        }
+
+        function downloadNaive() {
+            console.log('[DOWNLOAD] Downloading Naive trajectory...');
+            window.location.href = '/api/download/naive';
+        }
+
+        function downloadBayesian() {
+            console.log('[DOWNLOAD] Downloading Bayesian trajectory...');
+            window.location.href = '/api/download/bayesian';
+        }
+
+        function downloadKalman() {
+            console.log('[DOWNLOAD] Downloading Kalman trajectory...');
+            window.location.href = '/api/download/kalman';
+        }
+
+        function downloadParticle() {
+            console.log('[DOWNLOAD] Downloading Particle trajectory...');
+            window.location.href = '/api/download/particle';
         }
 
         function startJoystickUpdates() {
