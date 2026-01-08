@@ -2,7 +2,7 @@
 # Transfer MQTT system to Raspberry Pi
 
 PI_USER="jdmc"
-PI_HOST="10.49.216.71"
+PI_HOST="10.192.168.71"
 PI_ADDR="${PI_USER}@${PI_HOST}"
 
 echo "=========================================="

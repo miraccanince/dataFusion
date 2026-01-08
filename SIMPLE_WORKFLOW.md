@@ -10,7 +10,7 @@
 ./scripts/transfer_to_pi.sh
 
 # SSH to Pi
-ssh jdmc@10.111.224.71
+ssh jdmc@10.192.168.71
 
 # Start dashboard
 cd ~/dataFusion
@@ -18,7 +18,7 @@ cd ~/dataFusion
 ```
 
 #### Open Dashboard on Your Laptop
-Open browser: `http://10.111.224.71:5001`
+Open browser: `http://10.192.168.71:5001`
 
 You'll now see **NEW BLUE DOWNLOAD BUTTONS** below the START/STOP buttons!
 
@@ -205,7 +205,7 @@ Done!
 
 1. Transfer code to Pi: `./scripts/transfer_to_pi.sh`
 2. Start dashboard: `./start_dashboard_pi.sh`
-3. Open browser: `http://10.111.224.71:5001`
+3. Open browser: `http://10.192.168.71:5001`
 4. **Look for the new BLUE "📥 DOWNLOAD ALL DATA (CSV)" button!**
 5. Walk 3 strides, click download, done!
 

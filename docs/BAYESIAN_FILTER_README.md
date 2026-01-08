@@ -178,7 +178,7 @@ print(f"Position: ({estimated_pos['x']:.2f}, {estimated_pos['y']:.2f})")
 python3 web_dashboard_advanced.py
 
 # Access from browser
-http://10.111.224.71:5001
+http://10.192.168.71:5001
 ```
 
 **Steps:**

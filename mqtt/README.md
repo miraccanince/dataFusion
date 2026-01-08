@@ -29,7 +29,7 @@ Publishes CPU performance data using `paho-mqtt` and `psutil`.
 python3 mqtt_cpu_publisher.py
 
 # Custom broker and interval
-python3 mqtt_cpu_publisher.py --broker 10.111.224.71 --interval 10
+python3 mqtt_cpu_publisher.py --broker 10.192.168.71 --interval 10
 
 # Run for specific duration
 python3 mqtt_cpu_publisher.py --duration 60  # 60 seconds
@@ -58,7 +58,7 @@ Publishes predicted location from Bayesian algorithm.
 python3 mqtt_location_publisher.py
 
 # Custom broker and stride length
-python3 mqtt_location_publisher.py --broker 10.111.224.71 --stride 0.75
+python3 mqtt_location_publisher.py --broker 10.192.168.71 --stride 0.75
 
 # Custom interval
 python3 mqtt_location_publisher.py --interval 20  # 20ms
@@ -92,7 +92,7 @@ python3 mqtt_subscriber_windowed.py --window 1.0
 python3 mqtt_subscriber_windowed.py --window 5.0
 
 # Custom broker
-python3 mqtt_subscriber_windowed.py --window 2.0 --broker 10.111.224.71
+python3 mqtt_subscriber_windowed.py --window 2.0 --broker 10.192.168.71
 ```
 
 ---
@@ -147,7 +147,7 @@ Two simple rules to detect Raspberry Pi malfunctioning.
 
 **Usage:**
 ```bash
-python3 malfunction_detection.py --broker 10.111.224.71
+python3 malfunction_detection.py --broker 10.192.168.71
 ```
 
 ---

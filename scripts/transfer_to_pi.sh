@@ -3,7 +3,7 @@
 # Usage: ./transfer_to_pi.sh
 
 PI_USER="jdmc"
-PI_HOST="10.49.216.71"
+PI_HOST="10.192.168.71"
 PI_ADDR="${PI_USER}@${PI_HOST}"
 
 echo "=========================================="
@@ -53,7 +53,7 @@ echo "4. Start the dashboard:"
 echo "   python3 src/web_dashboard_advanced.py"
 echo ""
 echo "5. Access dashboard from your laptop:"
-echo "   http://10.49.216.71:5001"
+echo "   http://10.192.168.71:5001"
 echo ""
 echo "6. Put RPi in backpack, click START WALKING, and walk around!"
 echo "=========================================="

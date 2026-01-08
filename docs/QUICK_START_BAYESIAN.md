@@ -48,11 +48,11 @@ This will generate:
 
 ```bash
 # Transfer files to Pi
-scp bayesian_filter.py jdmc@10.111.224.71:~/dataFusion/
-scp web_dashboard_advanced.py jdmc@10.111.224.71:~/dataFusion/
+scp bayesian_filter.py jdmc@10.192.168.71:~/dataFusion/
+scp web_dashboard_advanced.py jdmc@10.192.168.71:~/dataFusion/
 
 # SSH to Pi
-ssh jdmc@10.111.224.71
+ssh jdmc@10.192.168.71
 
 # Run the dashboard
 cd ~/dataFusion
@@ -61,7 +61,7 @@ python3 web_dashboard_advanced.py
 
 Access the dashboard:
 ```
-http://10.111.224.71:5001
+http://10.192.168.71:5001
 ```
 
 ### Using the Web Dashboard

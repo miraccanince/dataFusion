@@ -16,7 +16,7 @@ fi
 echo "✓ MQTT broker running"
 echo ""
 echo "Starting dashboard..."
-echo "Access from browser: http://10.49.216.71:5001"
+echo "Access from browser: http://10.192.168.71:5001"
 echo ""
 echo "Press Ctrl+C to stop"
 echo "=========================================="

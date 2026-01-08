@@ -71,7 +71,7 @@ The broker is the "post office" that handles all messages.
 
 ```bash
 # SSH into your Raspberry Pi
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 
 # Install Mosquitto (MQTT broker)
 sudo apt-get update
@@ -110,7 +110,7 @@ Paste this content:
 ```bash
 #!/bin/bash
 PI_USER="jdmc"
-PI_HOST="10.49.216.71"
+PI_HOST="10.192.168.71"
 PI_ADDR="${PI_USER}@${PI_HOST}"
 
 echo "Transferring MQTT system to Raspberry Pi..."
@@ -141,7 +141,7 @@ chmod +x transfer_mqtt_to_pi.sh
 
 **On Raspberry Pi:**
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 cd ~/dataFusion/mqtt
 
 # Start CPU publisher (runs for 60 seconds)
@@ -171,42 +171,42 @@ Published 200 messages | CPU: 47.1% | Memory: 62.5%
 
 **Terminal 1 - Start CPU Publisher:**
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 cd ~/dataFusion/mqtt
 python3 mqtt_cpu_publisher.py --broker localhost
 ```
 
 **Terminal 2 - Start Windowed Subscriber (1 second window):**
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 cd ~/dataFusion/mqtt
 python3 mqtt_subscriber_windowed.py --broker localhost --window 1.0
 ```
 
 **Terminal 3 - Start Windowed Subscriber (5 second window):**
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 cd ~/dataFusion/mqtt
 python3 mqtt_subscriber_windowed.py --broker localhost --window 5.0
 ```
 
 **Terminal 4 - Start Bernoulli Sampling Subscriber:**
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 cd ~/dataFusion/mqtt
 python3 mqtt_subscriber_bernoulli.py --broker localhost
 ```
 
 **Terminal 5 - Start Malfunction Detection:**
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 cd ~/dataFusion/mqtt
 python3 malfunction_detection.py --broker localhost
 ```
 
 **Terminal 6 - Start Location Publisher (requires SenseHAT):**
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 cd ~/dataFusion/mqtt
 python3 mqtt_location_publisher.py --broker localhost
 ```

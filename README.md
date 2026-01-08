@@ -114,7 +114,7 @@ dataFusion/
 #### 2. Start Web Dashboard on Pi
 ```bash
 # SSH to Pi
-ssh jdmc@10.111.224.71
+ssh jdmc@10.192.168.71
 
 # Run dashboard
 cd ~/dataFusion
@@ -128,7 +128,7 @@ python3 web_dashboard_advanced.py
 #### 3. Access Dashboard
 Open browser and navigate to:
 ```
-http://10.111.224.71:5001
+http://10.192.168.71:5001
 ```
 
 #### 4. Start Tracking

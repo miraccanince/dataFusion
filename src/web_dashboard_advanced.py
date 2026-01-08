@@ -1,7 +1,7 @@
 """
 Advanced Web Dashboard with Data Comparison
 ============================================
-Access from browser: http://10.49.216.71:5001
+Access from browser: http://10.192.168.71:5001
 
 NEW FEATURES:
 - Compare raw vs filtered sensor data
@@ -1456,7 +1456,7 @@ if __name__ == '__main__':
     logger.info("=" * 70)
     logger.info("🚀 ADVANCED Dashboard with Auto-Stride Detection")
     logger.info("=" * 70)
-    logger.info(f"\n📱 Access: http://10.49.216.71:5001")
+    logger.info(f"\n📱 Access: http://10.192.168.71:5001")
     logger.info(f"\n✨ Features:")
     logger.info(f"   - 🚶 AUTOMATIC TRACKING: Always monitoring for strides!")
     logger.info(f"   - Raw vs Filtered sensor comparison")

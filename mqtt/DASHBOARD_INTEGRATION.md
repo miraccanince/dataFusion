@@ -33,7 +33,7 @@ Your dashboard now has an **MQTT Control Panel** section at the bottom that lets
 
 On Raspberry Pi:
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 sudo systemctl start mosquitto
 sudo systemctl enable mosquitto
 ```
@@ -51,7 +51,7 @@ cd /Users/mirac/Desktop/master_sse_25_26-main/dataFusion/scripts
 
 On Raspberry Pi:
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 cd ~/dataFusion/src
 python3 web_dashboard_advanced.py
 ```
@@ -60,7 +60,7 @@ python3 web_dashboard_advanced.py
 
 On your laptop browser:
 ```
-http://10.49.216.71:5001
+http://10.192.168.71:5001
 ```
 
 **Scroll down to see the MQTT Control Panel!**
@@ -169,7 +169,7 @@ The system successfully:
 ### "MQTT broker not running" error
 
 ```bash
-ssh jdmc@10.49.216.71
+ssh jdmc@10.192.168.71
 sudo systemctl start mosquitto
 # Then refresh dashboard
 ```
