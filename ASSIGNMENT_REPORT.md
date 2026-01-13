@@ -3,6 +3,9 @@
 **Course:** Master SSE 25/26
 **Topic:** Pedestrian Inertial Navigation with MQTT Data Stream Management
 **Date:** January 2026
+**Students:** Mirac Can Ince and Moreira Zambrano JD, Juan Diego
+**Students emails:** mc.ince@st.hanze.nl, jd.moreira.zambrano@st.hanze.nl
+
 
 ---
 
